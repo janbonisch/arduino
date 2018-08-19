@@ -116,11 +116,23 @@ public:
             yield(); // allows for system yield if needed
         }
 
-        noInterrupts(); // Need 100% focus on instruction timing
+		// Need 100% focus on instruction timing
+#if defined(ARDUINO_ARCH_ESP32)
+		delay(1); // required
+		portMUX_TYPE updateMux = portMUX_INITIALIZER_UNLOCKED;
+
+        portENTER_CRITICAL(&updateMux);
+#else
+        noInterrupts(); 
+#endif
 
         T_SPEED::send_pixels(_pixels, _pixels + _sizePixels, _pin);
-
+		
+#if defined(ARDUINO_ARCH_ESP32)
+        portEXIT_CRITICAL(&updateMux);
+#else
         interrupts();
+#endif
 
         // save EOD time for latch on next call
         _endTime = micros();
@@ -149,11 +161,6 @@ private:
 typedef NeoEspBitBangMethodBase<NeoEspBitBangSpeedWs2813> NeoEsp32BitBangWs2813Method;
 typedef NeoEspBitBangMethodBase<NeoEspBitBangSpeed800Kbps> NeoEsp32BitBang800KbpsMethod;
 typedef NeoEspBitBangMethodBase<NeoEspBitBangSpeed400Kbps> NeoEsp32BitBang400KbpsMethod;
-
-// Bitbang method is the default method for Esp32
-typedef NeoEsp32BitBangWs2813Method NeoWs2813Method;
-typedef NeoEsp32BitBang800KbpsMethod Neo800KbpsMethod;
-typedef NeoEsp32BitBang400KbpsMethod Neo400KbpsMethod;
 
 #else
 
