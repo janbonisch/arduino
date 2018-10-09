@@ -14,6 +14,9 @@
 #define PIN_1WIRE   3 //1wire teplomery
 #define PIN_LEDS1   4 //prvni ledpasek
 #define PIN_LEDS2   5 //druhy ledpasek 
+#define PIN_HEATING 6 //topeni, PWM (muze bejt 3,5,6,9,10,11)
+#define PIN_SDA
+#define PIN_SCL
 
 //Konstanty pro tisk polozek
 #define PRINT_T1    0x01
@@ -23,6 +26,7 @@
 #define PRINT_COLOR 0x10
 #define PRINT_DATE  0x20
 #define PRINT_TIME  0x40
+#define PRINT_HEAT  0x40
 #define PRINT_ALL   0xFFFF
 
 //----------------------------------------------------------------
@@ -38,10 +42,12 @@
 int events=EV_INIT; //stejne v dalsich knihovnach bude staticka inicializace, tak se k tomu pridame
 
 void set_event(int mask) {
+  //TODO: mozna nejak zatomizovat, co az mi hrabne a bude se neco dit v preruseni
   events|=mask;
 }
 
 int tstclr_event(int mask) {
+  //TODO: mozna nejak zatomizovat, co az mi hrabne a bude se neco dit v preruseni
   if (events&mask) {
     events&=~mask;
     return mask;
@@ -50,10 +56,31 @@ int tstclr_event(int mask) {
 }
 
 //----------------------------------------------------------------
-// Nastaveni a aktualni stavy teraria
+// Zalohovana pamet
+typedef struct {
+  RgbColor color=new RgbColor();
+  int heating;
+} NVRAM;
+
+NVRAM nvram;  //zalohovana pamet
+
+void nvram_init() {
+  memset(&nvram,0,sizeof(NVRAM)); //nejprve vynulujeme
+  //TODO: dodelat inicializaci
+}
+
+void nvram_update() {
+  //TODO: dodelat zapis
+}
+
+//Obezlicky, aby to vypadalo jako uplne normalni promenna
+#define color nvram.color
+#define heating nvram.heating
+
+//----------------------------------------------------------------
+// Aktualni stavy teraria
 
 float t1,t2,t3,rh1;
-RgbColor color=new RgbColor();
 
 //----------------------------------------------------------------
 // Pomocne kravinky
@@ -61,7 +88,7 @@ RgbColor color=new RgbColor();
 int sectick;
 
 char printbuffer[64]; //bufik pro tisk
-#define get_pritnt_buffer() printbuffer
+#define get_print_buffer() printbuffer
 
 int bcd2bin(int bcd) {
   return (((bcd>>4)&15)*10)+(bcd&15);
@@ -78,11 +105,11 @@ RTC_DS1307 rtc;
 DateTime now;
 
 void printbuffer_time(void) {
-  sprintf(get_pritnt_buffer(),"%02d:%02d:%02d",now.hour(),now.minute(),now.second()); //"00:00:00"
+  sprintf(get_print_buffer(),"%02d:%02d:%02d",now.hour(),now.minute(),now.second()); //"00:00:00"
 }
 
 void printbuffer_date(void) {
-  sprintf(get_pritnt_buffer(),"%02d:%02d:%04d",now.day(),now.month(),now.year()); //"12.12.2017"
+  sprintf(get_print_buffer(),"%02d:%02d:%04d",now.day(),now.month(),now.year()); //"12.12.2017"
 }
 
 void rtc_proc() {
@@ -96,7 +123,7 @@ void rtc_proc() {
 void set_rtc(DateTime ts) {
   rtc.adjust(ts); //dle dodaneho razidla nastavime
   rtc_proc(); //a provedeme proceduru, cimz se to nasaje do systemoveho casu
-  debug_print(F("set"),PRINT_TIME|PRINT_DATE); //a ukazeme, co jsme provedli
+  debug_print_set(PRINT_TIME|PRINT_DATE); //a ukazeme, co jsme provedli
 }
 
 //----------------------------------------------------------------
@@ -115,9 +142,8 @@ void set_color(RgbColor c) {
   strip1.Show();          
   strip2.ClearTo(color);
   strip2.Show();          
-  debug_print(F("set"),PRINT_COLOR);
+  debug_print_set(PRINT_COLOR);
 }
-
 
 //----------------------------------------------------------------
 // Dallas 1wire
@@ -150,7 +176,24 @@ void am2302_read() {
   debug_print(F("AM2302 read"),PRINT_T1|PRINT_RH1); 
 }
 
+//----------------------------------------------------------------
+// Topeni
 
+void set_heating(int percent) {
+  unsigned int x;
+  
+  if (percent<=0) { //je to nula nebo jeste min, takze to je spatne
+    digitalWrite(PIN_HEATING,0);  
+  } else if (percent>=100) { //je to vic jak maximum
+    digitalWrite(PIN_HEATING,1);  
+  } else { //je to neco rozumneho
+    x=percent; //udelame bez znamenka
+    x*=653; //bulharska konstanta aneb int(255/100*256)
+    x>>=8;  //zahodim binarni mista
+    analogWrite(PIN_HEATING, x);  //takhle snadno zatopim pomoci pwm
+  }
+  debug_print_set(PRINT_HEAT);
+}
 
 //----------------------------------------------------------------
 //Displej
@@ -212,14 +255,14 @@ void display_proc(int screen) {
       u8g2.drawStr(TEMPS_COLUMN,LINE1,"cidla");
       x1=float2int(t1);
       x2=float2int(rh1);
-      sprintf(get_pritnt_buffer(),"1 %02d   %02d%%",x1,x2); //"1 00   99%"
-      u8g2.drawStr(TEMPS_COLUMN,LINE2,get_pritnt_buffer());
+      sprintf(get_print_buffer(),"1 %02d   %02d%%",x1,x2); //"1 00   99%"
+      u8g2.drawStr(TEMPS_COLUMN,LINE2,get_print_buffer());
       x1=float2int(t2);
-      sprintf(get_pritnt_buffer(),"2 %02d",x1); //"2 88"
-      u8g2.drawStr(TEMPS_COLUMN,LINE3,get_pritnt_buffer());
+      sprintf(get_print_buffer(),"2 %02d",x1); //"2 88"
+      u8g2.drawStr(TEMPS_COLUMN,LINE3,get_print_buffer());
       x1=float2int(t3);
-      sprintf(get_pritnt_buffer(),"2 %02d",x1); //"3 88"      
-      u8g2.drawStr(TEMPS_COLUMN,LINE4,get_pritnt_buffer());
+      sprintf(get_print_buffer(),"2 %02d",x1); //"3 88"      
+      u8g2.drawStr(TEMPS_COLUMN,LINE4,get_print_buffer());
       hacek(TEMPS_COLUMN,LINE1);
       stupen(TEMPS_COLUMN+25,LINE2);
       stupen(TEMPS_COLUMN+25,LINE3);
@@ -227,10 +270,10 @@ void display_proc(int screen) {
       //cas a datum
       u8g2.drawStr(RTC_COLUMN,LINE1,"cas");
       printbuffer_time();      
-      u8g2.drawStr(RTC_COLUMN,LINE2,get_pritnt_buffer());      
+      u8g2.drawStr(RTC_COLUMN,LINE2,get_print_buffer());      
       u8g2.drawStr(RTC_COLUMN,LINE3,"datum");
       printbuffer_date();      
-      u8g2.drawStr(RTC_COLUMN,LINE4,get_pritnt_buffer());
+      u8g2.drawStr(RTC_COLUMN,LINE4,get_print_buffer());
       hacek(RTC_COLUMN,LINE1);
       break;      
     default: //uvodni displej      
@@ -247,25 +290,56 @@ void display_proc(int screen) {
 
 #define SERIAL_TIMEOUT (-1)
 
+//ukaz hlavicku
+void show_head(void) {
+  Serial.println(F("\n\nTerrarium v1.0\n==============\n"));  
+}
+
+//Ukaz help
+void show_help(void) {
+  show_head();
+  Serial.println(F(
+  "(h)elp"\
+  "\n(s)tatus"\
+  "\n(m)easure"\  
+  "\n(c)olor RRGGBB       items in hex"\
+  "\n(t)ime hhmmssDDMMYY  items in bcd format"\
+  "\n(h)eating PP         power in percent, bcd format"\
+  "\n")); //na zaver dvojity odradkovani (druhy je od println);
+}
+
 void println(void) {
   Serial.print(F("\n"));
 }
 
-void print_item(char* name, float value) {
+void print_space(void) {
   Serial.print(' ');
+}
+
+void print_equal(void) {
+  Serial.print(' ');
+}
+
+void print_comma(void) {
+  Serial.print(',');
+}
+
+
+void print_item(char* name, float value) {
+  print_space();
   Serial.print(name);
-  Serial.print('=');
+  print_equal();
   Serial.print(value);  
 }
 
 void print_rgb(char* name, RgbColor c) {
-  Serial.print(' ');
+  print_space();
   Serial.print(name);
-  Serial.print('=');
+  print_equal();
   Serial.print(c.R);
-  Serial.print(',');
+  print_comma();
   Serial.print(c.G);
-  Serial.print(',');
+  print_comma();
   Serial.print(c.B);
 }
 
@@ -275,24 +349,30 @@ void print_proc(int mask) {
   if (mask&PRINT_T2) print_item("t2",t2);
   if (mask&PRINT_T3) print_item("t3",t3);
   if (mask&PRINT_RH1) print_item("rh1",rh1);
+  if (mask&PRINT_HEAT) print_item("heat",heating);
   if (mask&PRINT_COLOR) print_rgb("color",color);   
   if (mask&PRINT_TIME) {    
     Serial.print(F(" time="));
     printbuffer_time();
-    Serial.print(get_pritnt_buffer());    
+    Serial.print(get_print_buffer());    
   }
   if (mask&PRINT_DATE) {    
     Serial.print(F(" date="));
     printbuffer_date();
-    Serial.print(get_pritnt_buffer());    
+    Serial.print(get_print_buffer());    
   }
-  Serial.print("\n");  
+  println();
 }
 
 //tisk ladicich informaci
 void debug_print(__FlashStringHelper* msg, int mask) {
   Serial.print(msg);
   print_proc(mask);
+}
+
+//tisk ladicich informaci, na uvod je slovo set
+void debug_print_set(int mask) {
+  debug_print(F("set"),mask); //a ukazeme, co jsme provedli
 }
 
 //cte prave jeden znak, prevede na maly pismenka
@@ -337,52 +417,51 @@ long read_hexw(void) {
   return (b1<<8)+b2; //vyrobime vysledek  
 }
 
-void show_head(void) {
-  Serial.println(F("\n\nTerrarium v1.0\n==============\n"));  
-}
-
-void show_help(void) {
-  show_head();
-  Serial.println(F(
-  "(h)elp"\
-  "\n(s)tatus"\
-  "\n(m)easure"\  
-  "\n(c)olor RRGGBB in hex"\
-  "\n(t)ime hhmmssDDMMYY in bcd"\
-  "\n")); //na zaver dvojity odradkovani (druhy je od println);
-}
-
+//nacte rtc ze seriaku
 DateTime read_rtc(void) {
   int x1,x2,x3,x4,x5,x6;
   
-  if ((x1=read_hexb())>=0)
-    if ((x2=read_hexb())>=0)
-      if ((x3=read_hexb())>=0)
-        if ((x4=read_hexb())>=0)
-          if ((x5=read_hexb())>=0)
-            if ((x6=read_hexb())>=0) {
-              //rtc.adjust(DateTime(bcd2bin(x6)+2000,bcd2bin(x5),bcd2bin(x4),bcd2bin(x1),bcd2bin(x2),bcd2bin(x3)));
-              return DateTime(bcd2bin(x6)+2000,bcd2bin(x5),bcd2bin(x4),bcd2bin(x1),bcd2bin(x2),bcd2bin(x3));              
+  if ((x1=read_hexb())>=0)              //postupne
+    if ((x2=read_hexb())>=0)            //nabereme
+      if ((x3=read_hexb())>=0)          //polozky
+        if ((x4=read_hexb())>=0)        //s testem
+          if ((x5=read_hexb())>=0)      //timeoutu
+            if ((x6=read_hexb())>=0) {  //a kdyz to klapne
+              return DateTime(bcd2bin(x6)+2000,bcd2bin(x5),bcd2bin(x4),bcd2bin(x1),bcd2bin(x2),bcd2bin(x3)); //tak slava nazdar vejletu
             }            
-  return now;
+  return now;                           //nejakej prusvih, vracime ted
 }
 
+//Nacte barvu ze seriaku
 RgbColor read_color(void) {
   int x1,x2,x3;  
-  Serial.println("Co je sakra");  
-  if ((x1=read_hexb())>=0)
-    if ((x2=read_hexb())>=0)
-      if ((x3=read_hexb())>=0) {        
-        return RgbColor(x1,x2,x3);        
+    
+  if ((x1=read_hexb())>=0)         //postupne
+    if ((x2=read_hexb())>=0)       //nabereme RGB slozky
+      if ((x3=read_hexb())>=0) {   //s testem timeoutu     
+        return RgbColor(x1,x2,x3); //a kdyz to klapne, tak hura       
       }
-  return color;
+  return color;                    //pokud problem, vracime co bylo
+}
+
+//Nacte topeni ze seriaku
+int read_heating(void) {
+  int x;
+  
+  x=read_hexb();        //bereme hexabajt
+  if (x>0x99) {         //pokud je to vic jak 99, 
+    return 100;         //tak fakt jen 100%
+  } else  if (x>=0) {   //pokud je to 0-99
+    return bcd2bin(x);  //tak z toho udelame binarni cislicko
+  } else {              //a pokud je to uplna kravina
+    return heating;     //tak vracime co bylo posledne
+  }
 }
 
 //Akce na seriovem portu
 void serial_proc(void) {
   char c;
-  int x1,x2,x3,x4,x5,x6;
-  
+    
   if (Serial.available()==0) return; //pokud na seriaku klid, tak slus
   c=read_char(); //nacteme prikaz
   switch (c) { //rozeskok dle prikazu
@@ -392,13 +471,15 @@ void serial_proc(void) {
     case 'c': //nastaveni barvy
       set_color(read_color()); //ze seriaku nabereme barvu a tu nastavime
       break; 
+    case 'h': //topeni      
+      set_heating(read_heating());
+      break;      
     case 'm': //pozadavek mereni  
       set_event(EV_MEAREQ); //nahodime pozadavek na mereni     
       break;    
     case 's': //pozadavek na data
       set_event(EV_STATREQ); //nahodime pozadavek na mereni     
       break;
-    case 'h': //napoveda
     case '?':
       show_help(); //ukaz napovedu
       break;    
@@ -436,6 +517,9 @@ void loop() {
 
 //Start celyho blazince
 void ev_init() {
+  //Inicializace zalohovane pameti
+  nvram_init();
+  
   //Inicializace seriaku
   Serial.begin(9600);
   show_head();
@@ -443,7 +527,7 @@ void ev_init() {
   //Inicializace LED pasku
   strip1.Begin();
   strip2.Begin();
-  set_color(RgbColor(3,3,3));
+  set_color(color); //nastavime posledne ulozenou hodnotu
 
   //Inicializace dipleje
   u8g2.begin();
@@ -456,6 +540,11 @@ void ev_init() {
   //inicializace dallas teplomeru
   ds18b20.begin();
   wire1_read();
+
+  //inicializace topeni
+  pinMode(PIN_HEATING, OUTPUT); //drat bude vystup
+  set_heating(heating); //nastavime posledne ulozenou hodnotu
+  
 
   //inicializace RTC
   if (rtc.begin()) { //startujem
