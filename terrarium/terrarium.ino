@@ -1,12 +1,33 @@
 #include <Arduino.h>
-#include <OneWire.h>
-#include <NeoPixelBus.h>
-#include <DallasTemperature.h>
-#include <DHT.h>
-#include <U8g2lib.h>
-#include <U8x8lib.h>
-#include <RTClib.h>
+#include <OneWire.h>              //http://www.pjrc.com/teensy/arduino_libraries/OneWire.zip
+#include <NeoPixelBus.h>          //https://github.com/Makuna/NeoPixelBus/wiki
+#include <DallasTemperature.h>    //https://github.com/milesburton/Arduino-Temperature-Control-Library
+#include <Adafruit_Sensor.h>      //https://github.com/adafruit/Adafruit_Sensor
+#include <DHT.h>                  //https://github.com/adafruit/DHT-sensor-library
+#include <U8g2lib.h>              //https://github.com/olikraus/u8g2
+#include <U8x8lib.h>              //https://github.com/olikraus/u8g2
+#include <RTClib.h>               //https://github.com/adafruit/RTClib
 
+/*
+Konektory v ridici jednotce
+===========================
+                                                       .. 
+                                                       .. 
+                                                       .. 
+        +-----+-----+-----+                            ||
+        | SDA |1WIRE| GND |                            ||
+        +-----+-----+-----+    +-------+    +-------+  ||
+        | SCL |1WIRE| GND |    |TOPENI |    |TOPENI |  ||
+        +-----+-----+-----+    +-------+    +-------+  ||
+        |LEDS1| +5V |DHT22|    | !! !! |    | !! !! |  ||
+        +-----+-----+-----+    +---+---+    +---+---+  ||
+        |LEDS2| GND | KEY |    | + | - |    | + | - |  ||
+        +-----+-----+-----+    +---+---+    +---+---+  ||
+                                                       || 
+... ===================================================++
+
+
+*/
 //----------
 // Zadratovani
 
@@ -26,7 +47,7 @@
 #define PRINT_COLOR 0x10
 #define PRINT_DATE  0x20
 #define PRINT_TIME  0x40
-#define PRINT_HEAT  0x40
+#define PRINT_HEAT  0x80
 #define PRINT_ALL   0xFFFF
 
 //----------------------------------------------------------------
@@ -109,7 +130,7 @@ void printbuffer_time(void) {
 }
 
 void printbuffer_date(void) {
-  sprintf(get_print_buffer(),"%02d:%02d:%04d",now.day(),now.month(),now.year()); //"12.12.2017"
+  sprintf(get_print_buffer(),"%02d.%02d.%04d",now.day(),now.month(),now.year()); //"12.12.2017"
 }
 
 void rtc_proc() {
@@ -181,11 +202,13 @@ void am2302_read() {
 
 void set_heating(int percent) {
   unsigned int x;
-  
+
+  heating=percent;
   if (percent<=0) { //je to nula nebo jeste min, takze to je spatne
     digitalWrite(PIN_HEATING,0);  
   } else if (percent>=100) { //je to vic jak maximum
     digitalWrite(PIN_HEATING,1);  
+    heating=100;
   } else { //je to neco rozumneho
     x=percent; //udelame bez znamenka
     x*=653; //bulharska konstanta aneb int(255/100*256)
@@ -317,7 +340,7 @@ void print_space(void) {
 }
 
 void print_equal(void) {
-  Serial.print(' ');
+  Serial.print('=');
 }
 
 void print_comma(void) {
@@ -325,7 +348,7 @@ void print_comma(void) {
 }
 
 
-void print_item(char* name, float value) {
+void print_item(__FlashStringHelper* name, float value) {
   print_space();
   Serial.print(name);
   print_equal();
@@ -345,12 +368,12 @@ void print_rgb(char* name, RgbColor c) {
 
 //procedura tisku podle masky
 void print_proc(int mask) {
-  if (mask&PRINT_T1) print_item("t1",t1);
-  if (mask&PRINT_T2) print_item("t2",t2);
-  if (mask&PRINT_T3) print_item("t3",t3);
-  if (mask&PRINT_RH1) print_item("rh1",rh1);
-  if (mask&PRINT_HEAT) print_item("heat",heating);
-  if (mask&PRINT_COLOR) print_rgb("color",color);   
+  if (mask&PRINT_T1) print_item(F("t1"),t1);
+  if (mask&PRINT_T2) print_item(F("t2"),t2);
+  if (mask&PRINT_T3) print_item(F("t3"),t3);
+  if (mask&PRINT_RH1) print_item(F("rh1"),rh1);
+  if (mask&PRINT_HEAT) print_item(F("heating"),heating);
+  if (mask&PRINT_COLOR) print_rgb(F("color"),color);   
   if (mask&PRINT_TIME) {    
     Serial.print(F(" time="));
     printbuffer_time();
