@@ -17,9 +17,9 @@ Konektory v ridici jednotce
         +-----+-----+-----+                            ||
         | SDA |1WIRE| GND |                            ||
         +-----+-----+-----+    +-------+    +-------+  ||
-        | SCL |1WIRE| GND |    |TOPENI |    |TOPENI |  ||
+        | SCL |1WIRE| GND |    |TOPENI |    | 5V DC |  ||
         +-----+-----+-----+    +-------+    +-------+  ||
-        |LEDS1| +5V |DHT22|    | !! !! |    | !! !! |  ||
+        |LEDS1| +5V |DHT22|    | oo oo |    | oo oo |  ||
         +-----+-----+-----+    +---+---+    +---+---+  ||
         |LEDS2| GND | KEY |    | + | - |    | + | - |  ||
         +-----+-----+-----+    +---+---+    +---+---+  ||
@@ -88,6 +88,8 @@ NVRAM nvram;  //zalohovana pamet
 void nvram_init() {
   memset(&nvram,0,sizeof(NVRAM)); //nejprve vynulujeme
   //TODO: dodelat inicializaci
+  nvram.heating=20;  //zatim odhad nejakeho normalniho topeni
+  nvram.color=RgbColor(1,1,1); //aspon neco  
 }
 
 void nvram_update() {
@@ -150,20 +152,20 @@ void set_rtc(DateTime ts) {
 //----------------------------------------------------------------
 //LED pasek
 
-const uint16_t PixelCount = 60; // make sure to set this to the number of pixels in your strip
+const uint16_t PixelCount = 30; //oba pasky maji 30 ledek
 
 NeoPixelBus<NeoGrbFeature, Neo800KbpsMethod> strip1(PixelCount, PIN_LEDS1);
 NeoPixelBus<NeoGrbFeature, Neo800KbpsMethod> strip2(PixelCount, PIN_LEDS2);
 
 void set_color(RgbColor c) {      
-  color.R=c.R;
-  color.G=c.G;
-  color.B=c.B;  
-  strip1.ClearTo(color);
-  strip1.Show();          
-  strip2.ClearTo(color);
-  strip2.Show();          
-  debug_print_set(PRINT_COLOR);
+  color.R=c.R; //schovame si
+  color.G=c.G; // barvicku
+  color.B=c.B; //  pro budouci generace
+  strip1.ClearTo(color); //prvni pasek naladujeme barvou
+  strip1.Show(); //a zobrazime
+  strip2.ClearTo(color); //druhy pasek naladujem barvou
+  strip2.Show(); //a zobrazime
+  debug_print_set(PRINT_COLOR); //a ukazeme, co jsme provedli
 }
 
 //----------------------------------------------------------------
@@ -217,6 +219,10 @@ void set_heating(int percent) {
   }
   debug_print_set(PRINT_HEAT);
 }
+/*
+ * Nejaky namereny hodnoty
+ * status: t1=23.00 t2=33.06 t3=23.75 rh1=46.70 heating=30.00 color=1,1,1 time=22:08:23 date=04.11.2019 ale furt leze nahoru
+ */
 
 //----------------------------------------------------------------
 //Displej
@@ -348,7 +354,7 @@ void print_comma(void) {
 }
 
 
-void print_item(__FlashStringHelper* name, float value) {
+void print_item(char* name, float value) {
   print_space();
   Serial.print(name);
   print_equal();
@@ -368,12 +374,12 @@ void print_rgb(char* name, RgbColor c) {
 
 //procedura tisku podle masky
 void print_proc(int mask) {
-  if (mask&PRINT_T1) print_item(F("t1"),t1);
-  if (mask&PRINT_T2) print_item(F("t2"),t2);
-  if (mask&PRINT_T3) print_item(F("t3"),t3);
-  if (mask&PRINT_RH1) print_item(F("rh1"),rh1);
-  if (mask&PRINT_HEAT) print_item(F("heating"),heating);
-  if (mask&PRINT_COLOR) print_rgb(F("color"),color);   
+  if (mask&PRINT_T1) print_item("t1",t1);
+  if (mask&PRINT_T2) print_item("t2",t2);
+  if (mask&PRINT_T3) print_item("t3",t3);
+  if (mask&PRINT_RH1) print_item("rh1",rh1);
+  if (mask&PRINT_HEAT) print_item("heating",heating);
+  if (mask&PRINT_COLOR) print_rgb("color",color);   
   if (mask&PRINT_TIME) {    
     Serial.print(F(" time="));
     printbuffer_time();
