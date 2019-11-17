@@ -212,7 +212,7 @@ void set_heating(int percent) {
     digitalWrite(PIN_HEATING,1);  
     heating=100;
   } else { //je to neco rozumneho
-    x=percent; //udelame bez znamenka
+    x=(unsigned int)percent; //udelame bez znamenka
     x*=653; //bulharska konstanta aneb int(255/100*256)
     x>>=8;  //zahodim binarni mista
     analogWrite(PIN_HEATING, x);  //takhle snadno zatopim pomoci pwm
@@ -321,14 +321,14 @@ void display_proc(int screen) {
 
 //ukaz hlavicku
 void show_head(void) {
-  Serial.println(F("\n\nTerrarium v1.0\n==============\n"));  
+  Serial.println(F("\n\nTerrarium v1.1\n==============\n"));  
 }
 
 //Ukaz help
 void show_help(void) {
   show_head();
   Serial.println(F(
-  "(h)elp"\
+  "(?)help"\
   "\n(s)tatus"\
   "\n(m)easure"\  
   "\n(c)olor RRGGBB       items in hex"\
@@ -588,6 +588,7 @@ void ev_init() {
 //nova minuta
 void ev_min() {
   set_event(EV_MEAREQ); //jednou za minutu muzeme zmerit okoli, to nas asik nezabije  
+  u8g2.begin(); //znovuinicializace displeje, protoze to nejako chcipa neboco :-(
 }
 
 //nova vterina
@@ -609,4 +610,3 @@ void proc() {
     rtc_proc();      
   }
 }
-
