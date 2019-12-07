@@ -104,9 +104,8 @@ void loop()
   while (!Serial.available()); // Wait for characters
   Serial.readBytesUntil('\n', buffer, 3);
   int incomingValue = atoi(buffer);
-  if (incomingValue==999) while (1) roomba_send(162); 
   if(incomingValue > 0) roomba_send(incomingValue); 
-  delay(200);
+  delay(1000);
 }
 
 void roomba_send(int code) 
@@ -135,11 +134,13 @@ void roomba_send(int code)
     }
     arrayposition = arrayposition + 2;
   } 
-  for (int i = 0; i < 7; i++) {
+  for (int i = 0; i < 3; i++) {
     irsend.sendRaw(raw, 15, 38);
     delay(50);
   }
   Serial.println("");
+  start();
+  blink();
 
   /*
   Serial.print("Raw timings:");
