@@ -7,8 +7,11 @@
 //----------------------------------------------------------------
 // Zadratovani
 
-#define PIN_1WIRE   3 //1wire teplomery
- 
+#define PIN_1WIRE   10 //1wire teplomery
+
+//----------------------------------------------------------------
+// Jednoduchy radkovy terminal na streamu
+
  class SimpleTerminal {
   private:
     
@@ -62,7 +65,6 @@ void SimpleTerminal::clrbuf(void) {
 void SimpleTerminal::showbuf(void) {
   println(line,lpos); //pokud je radkove echo, tak ho provedeme
 }
-
 
 String SimpleTerminal::getstring(void) {
   String s=line; //z pole znaku udelame retezec
@@ -190,8 +192,11 @@ proc_new_line:
 
 OneWire wire1(PIN_1WIRE);
 // vytvoření instance senzoryDS z knihovny DallasTemperature
-DallasTemperature ds18b20(&wire1);
+//DallasTemperature ds18b20(&wire1);
 
+void wire1_read(void) {
+  //ds18b20.requestTemperatures();
+}
 //----------------------------------------------------------------
 // Uzivatelske rozhrani
 
@@ -202,12 +207,12 @@ SimpleTerminal st; //vsichi to tak v arduinu delaji, tak to taky tak budeme pach
 #define TEMP_POS_ORDER  8   //poradi na displeji
 #define TEMP_POS_NAME   12  //pocatek jmena, max do konce zanznamu
 
-int look4addr(unsigned char* addr) {
+int look4addr(uint8_t* addr) {
   int j;
   for (unsigned int i=0;i<EEPROM.length();i+=TEMP_REC_SIZE) {
     j=0; //projizdime od zacatku
     while (EEPROM[i+j]==addr[j]) { //pokud se dilci cast adresy shoduje
-      if (++j==TEMP_LEN_ADDR) return j; //tak jdeme na dalsi a pokud je stejny vsechno, vracime nalezeny index
+      if (++j==TEMP_LEN_ADDR) return i; //tak jdeme na dalsi a pokud je stejny vsechno, vracime nalezeny index
     }
   }
   return -1;  
@@ -219,17 +224,33 @@ void ui_init(void) {
   st.println(F("Startujem"));
 }
 
+void ui_list_addr(uint8_t* addr) {
+  for (unsigned int j=0;j<8;j++) st.printuinthex(*addr++);
+}
+
+void ui_list_addr(int eeprom_addr) {
+  uint8_t addr[TEMP_LEN_ADDR];
+  uint8_t* p;
+  
+  int ct=8;
+  p=addr;
+  do {
+    *p++=(uint8_t)EEPROM[eeprom_addr++];
+  } while ((--ct)!=0);
+  ui_list_addr(addr);  
+}
+
 void ui_list(int flags) {
   int id=0;
-  st.println(F("LISTECEK"));
+      
   st.pre_crlf();
   st.s->println(F("id  1WIRE ADDR        DP name\r\n" \
                   "--- ---------------- --- --------------------"));    
   for (unsigned int i=0;i<EEPROM.length();i+=TEMP_REC_SIZE) {     
     if ((flags==0)&&(EEPROM[i+TEMP_POS_ORDER]==0)) break; //pokud neukazumeme vsechno, tak preskakujeme prazdny
     st.printuint(++id);
-    st.printspace();
-    for (unsigned int j=TEMP_POS_ADDR;j<(TEMP_POS_ADDR+TEMP_LEN_ADDR);j++) st.printuinthex(EEPROM[i+j]);
+    st.printspace();    
+    ui_list_addr(i+TEMP_POS_ADDR);
     st.printspace();
     st.printuint(EEPROM[i+TEMP_POS_ORDER]);
     st.printspace();
@@ -242,6 +263,41 @@ void ui_list(int flags) {
     st.println();
   }    
   st.post_crlf();
+}
+
+void ui_scan(int store_scanpos, unsigned int store_id) {
+  uint8_t addr[8];
+  int scanpos,id;
+    
+  wire1.reset_search(); //inicializace hledani
+  scanpos=0;
+  st.println(F("pos 1wireaddr        id\r\n" \
+               "--- ---------------- ---"));    
+  while (wire1.search(addr)) { //naval adresu
+    scanpos++; //zvedneme ciselko
+    if (store_scanpos>=0) { //pokud je to ukladaci rezim
+      if (scanpos==store_scanpos) { //pokud je cislo skenu to co chceme ulozit) 
+        id=store_id*TEMP_REC_SIZE; //z ID udelame offset
+        if (id>=EEPROM.length()) { //pokud je to mimo misu
+          st.println(F("Bad ID")); //drzkujeme
+          return; //a koncime
+        }        
+        for (int i=0;i<TEMP_LEN_ADDR;i++) EEPROM[id++]=addr[i]; //naper adresu do zvolene predvolby
+        st.println(F("Successfully stored"));
+        return; //a slus
+      }      
+    } else { //ukazovaci rezim
+      id=look4addr(addr); //mrkneme, zdali uz to mame v seznamu
+      if ((store_id==0)||(id<0)) { //bud ukazujeme vsechno, nebo jen zatim neznamy
+        st.printuint(scanpos); //ukaz poradi na 1wire
+        st.printspace(); //oddelovac
+        ui_list_addr(addr); //1wire adresa    
+        if (id>=0) st.printuint((id/TEMP_REC_SIZE)+1);        
+        st.println();
+      }
+    }
+  }    
+  st.post_crlf();    
 }
 
 void ui_proc(void) {
@@ -277,6 +333,16 @@ void ui_proc(void) {
     st.println(F("format in progress..."));
     for (unsigned int i=0;i<EEPROM.length();i++) EEPROM[i]=0; //projedem celou eeprom a vymazeme to    
     st.println(F("format done"));
+  } else if (line.equalsIgnoreCase(F("scanall"))) {
+    ui_scan(-1,0); //jenom to ukaz neznamy teplomery
+  } else if (line.equalsIgnoreCase(F("scan"))) {
+    ui_scan(-1,1); //ukaz uplne vsechno
+  } else if (line.startsWith(F("store"))) {
+    int s1=line.indexOf(F(" ")); //odelovac mezi store a scanpos
+    int s2=line.indexOf(F(" "),s1+1); //oddelovac scanpos a id
+    int scanpos=st.parseInt(s1); //vyprasime scanpos
+    int id=st.parseInt(s2)-1; //vyprasime idcko
+    ui_scan(scanpos,id); //a zkusime to ulozit
   } else {
     st.println(F("Unknown command"),&line);
   } 
@@ -288,6 +354,13 @@ void ui_proc(void) {
 
 void setup() {  
   ui_init(); //startujeme uzivatelske rozhrani
+
+  //inicializace dallas teplomeru
+  //ds18b20.begin();
+  
+  //wire1_read();
+
+  
 }
 
 void loop() {  
