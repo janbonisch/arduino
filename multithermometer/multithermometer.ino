@@ -1,6 +1,8 @@
+#include <Wire.h>
 #include <OneWire.h>              //http://www.pjrc.com/teensy/arduino_libraries/OneWire.zip
 #include <DallasTemperature.h>    //https://github.com/milesburton/Arduino-Temperature-Control-Library
-#include <U8x8lib.h>              //https://github.com/olikraus/u8g2
+#include <LiquidCrystal_I2C.h>    //https://www.makerguides.com/character-i2c-lcd-arduino-tutorial/
+
 #include <EEPROM.h>
 
 
@@ -41,6 +43,7 @@
     void println(char* str);
     void println(const char* str);
     void println(const __FlashStringHelper* s1, String* s2);
+    void print(const __FlashStringHelper* str);
     void printspace(void);
     void printuint(unsigned int d);
     void printuinthex(unsigned int d);
@@ -83,6 +86,10 @@ void SimpleTerminal::pre_crlf(void) {
 void SimpleTerminal::post_crlf(void) {
   if (flags&POST_CR) s->write(13);
   if (flags&POST_LF) s->write(10);
+}
+
+void SimpleTerminal::print(const __FlashStringHelper* str) {
+  s->print(str);
 }
 
 void SimpleTerminal::println(const __FlashStringHelper* str) {
@@ -185,8 +192,6 @@ proc_new_line:
   return 1; //oznamujeme, ze mame
 }
 
-
-
 //----------------------------------------------------------------
 // Dallas 1wire
 
@@ -197,6 +202,57 @@ OneWire wire1(PIN_1WIRE);
 void wire1_read(void) {
   //ds18b20.requestTemperatures();
 }
+
+//----------------------------------------------------------------
+// Display
+
+void ScanI2C(SimpleTerminal* st) {
+  byte error, address;
+  int nDevices;
+  
+  st->println(F("Scanning I2C bus ..."));
+  nDevices = 0;
+  for (address = 1; address < 127; address++ ) {
+    Wire.beginTransmission(address);
+    error = Wire.endTransmission();
+    if (error == 0) {
+      st->print(F("I2C device found at address 0x"));
+      st->printuinthex(address);
+      st->println();
+      nDevices++;
+    }
+    else if (error == 4) {
+      st->print(F("Unknown error at address 0x"));
+      st->printuinthex(address);
+      st->println();
+    }
+  }
+  if (nDevices == 0) {
+    st->println("No I2C devices found\n");
+  } else {
+    st->println("done\n");
+  }    
+}
+
+LiquidCrystal_I2C lcd = LiquidCrystal_I2C(0x3F, 20, 4); // Change to
+
+void display_init(void) {
+  lcd.init();
+  lcd.backlight();  
+
+  lcd.setCursor(0, 0);
+  //         01234567890123456789
+  lcd.print(F("*** Hello World! ***")); // Print the string "Hello World!"
+  lcd.setCursor(0, 1);
+  //         01234567890123456789
+  lcd.print(F("Displej displejuje! "));
+  lcd.setCursor(0, 2);
+  //         01234567890123456789
+  lcd.print(F("Pokracovani priste,"));
+  lcd.setCursor(0, 3);
+  lcd.print(F("jdu spat. Dobrou."));
+}
+
 //----------------------------------------------------------------
 // Uzivatelske rozhrani
 
@@ -304,8 +360,18 @@ void ui_proc(void) {
   if (st.proc()==0) return; //pokud se nic nedeje, tak koncime
   String line=st.getstring(); //nabereme vstup v podobe retezce
   if (line.equalsIgnoreCase(F("help"))) {
-    st.println(F("HELPICEK"\
-               "\r\n--------"));    
+    st.println(F("HELP"\
+               "\r\n----"\
+               "\r\nhelp           this help"\
+               "\r\nshow           show actual data"\
+               "\r\nlist           show used memory possition"\
+               "\r\nlistall        show all memory possition"\
+               "\r\set id dp name  setup memory: id=memory id, dp=display position, name=name of thermometter"\
+               "\r\nscan           look for a new thermometter(s) on 1wire bus (not used thermometter)"\
+               "\r\nscanall        show all thermometter(s) connected on 1wire bus"\
+               "\r\nstore pos id    store thermometter 1wire address to memory: pos=scan possition, id=memory id"\
+               "\r\nformat         erase all memory possitions"\
+               ));
   } else if (line.equalsIgnoreCase(F("list"))) {
     ui_list(0);
   } else if (line.equalsIgnoreCase(F("listall"))) {  
@@ -343,6 +409,8 @@ void ui_proc(void) {
     int scanpos=st.parseInt(s1); //vyprasime scanpos
     int id=st.parseInt(s2)-1; //vyprasime idcko
     ui_scan(scanpos,id); //a zkusime to ulozit
+  } else if (line.equalsIgnoreCase(F("scani2c"))) {
+    ScanI2C(&st);
   } else {
     st.println(F("Unknown command"),&line);
   } 
@@ -353,14 +421,12 @@ void ui_proc(void) {
 // Hlavni udalosti arduina
 
 void setup() {  
+  
+  display_init();   //displej
   ui_init(); //startujeme uzivatelske rozhrani
-
   //inicializace dallas teplomeru
-  //ds18b20.begin();
-  
+  //ds18b20.begin();  
   //wire1_read();
-
-  
 }
 
 void loop() {  
