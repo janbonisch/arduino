@@ -2,14 +2,20 @@
 #include <OneWire.h>              //http://www.pjrc.com/teensy/arduino_libraries/OneWire.zip
 #include <DallasTemperature.h>    //https://github.com/milesburton/Arduino-Temperature-Control-Library
 #include <LiquidCrystal_I2C.h>    //https://www.makerguides.com/character-i2c-lcd-arduino-tutorial/
-
 #include <EEPROM.h>
 
-
 //----------------------------------------------------------------
-// Zadratovani
+// Zadratovani a dalsi konstanty
 
-#define PIN_1WIRE   10 //1wire teplomery
+#define PIN_1WIRE     3 //1wire teplomery
+#define PIN_KEY_UP    0 //cudl nahoru
+#define PIN_KEY_DOWN  1 //cudl dolu
+
+#define TEMP_REC_SIZE   32  //delka zaznamu
+#define TEMP_POS_ADDR   0   //pozice adresy
+#define TEMP_LEN_ADDR   8   //delka adresy
+#define TEMP_POS_ORDER  8   //poradi na displeji
+#define TEMP_POS_NAME   12  //pocatek jmena, max do konce zanznamu
 
 //----------------------------------------------------------------
 // Jednoduchy radkovy terminal na streamu
@@ -193,18 +199,34 @@ proc_new_line:
 }
 
 //----------------------------------------------------------------
-// Dallas 1wire
+// Ruzne
 
-OneWire wire1(PIN_1WIRE);
-// vytvoření instance senzoryDS z knihovny DallasTemperature
-//DallasTemperature ds18b20(&wire1);
-
-void wire1_read(void) {
-  //ds18b20.requestTemperatures();
+///Čtení eepromky do paměti
+///@param mem kam to čteme
+///@param eeprom_addr adresa v eepromce
+///@param ct počet
+void readFromEEprom(uint8_t* mem, int eeprom_addr, int ct) {
+  do {
+    *mem++=(uint8_t)EEPROM[eeprom_addr++];
+  } while ((--ct)!=0);
 }
 
 //----------------------------------------------------------------
+// Dallas 1wire
+
+OneWire wire1(PIN_1WIRE); //jednodrat na urceny drat
+DallasTemperature ds18b20(&wire1); // vytvoření instance senzoryDS z knihovny DallasTemperature
+
+
+
+//----------------------------------------------------------------
 // Display
+
+#define MAX_LINES 32
+int display_line[MAX_LINES]; //pole se serazenejma radkama
+#define DISPLAY_LINES 4
+
+LiquidCrystal_I2C lcd = LiquidCrystal_I2C(0x3F, 20, 4); // Change to
 
 void ScanI2C(SimpleTerminal* st) {
   byte error, address;
@@ -228,13 +250,11 @@ void ScanI2C(SimpleTerminal* st) {
     }
   }
   if (nDevices == 0) {
-    st->println("No I2C devices found\n");
+    st->println(F("No I2C devices found\n"));
   } else {
-    st->println("done\n");
+    st->println(F("done\n"));
   }    
 }
-
-LiquidCrystal_I2C lcd = LiquidCrystal_I2C(0x3F, 20, 4); // Change to
 
 void display_init(void) {
   lcd.init();
@@ -248,21 +268,123 @@ void display_init(void) {
   lcd.print(F("Displej displejuje! "));
   lcd.setCursor(0, 2);
   //         01234567890123456789
-  lcd.print(F("Pokracovani priste,"));
-  lcd.setCursor(0, 3);
-  lcd.print(F("jdu spat. Dobrou."));
+  //lcd.print(F("Pokracovani priste,"));
+  //lcd.setCursor(0, 3);
+  //lcd.print(F("jdu spat. Dobrou."));
+}
+
+
+
+void display_show(int pos) {
+  unsigned int i,addr,p;
+  char bufik[32];
+  
+    
+  for (i=0;i<DISPLAY_LINES;i++) {
+    lcd.setCursor(0, i);
+    addr=display_line[pos++];        
+    maketext(bufik,addr); //vyrob popis mericiho mistecka
+    p=strlen(bufik);
+    while (p<20) bufik[p++]=' ';
+    bufik[20]=0;    
+    lcd.print(bufik);
+    addr+=TEMP_REC_SIZE;
+  }
+}
+
+//----------------------------------------------------------------
+// cudliky
+
+int display_pos; //od jake pozice zobrazujeme
+uint8_t flt_ku;
+uint8_t flt_kd;
+
+
+int key_proc1(int pin, uint8_t* flt) {
+  uint8_t f;
+
+  f=*flt; //vezmeme filtr
+  if (digitalRead(pin)==LOW) { //pokud je vstup v log. 0
+    f<<=1; //narotujeme 0
+  } else { //pokud je v 1
+    f=(f<<1)|1; //pereme tam jednicku
+  }
+  *flt=f; //novy stav filtru
+  if (f=0x80) return 1;
+  return 0;  
+}
+
+void key_proc(void) {
+  int add;
+  
+  add=0;
+  if (key_proc1(PIN_KEY_UP,&flt_ku)) { //provedeme filtr cudlu nahoru a pokud se fakt neco deje
+    if (display_pos>0) display_pos--;
+  }
+  if (key_proc1(PIN_KEY_DOWN,&flt_kd)) { //provedeme filtr cudlu dolu a pokud se fakt neco deje    
+    if ((display_pos-DISPLAY_LINES)>=MAX_LINES) display_pos=DISPLAY_LINES-MAX_LINES;
+    while ((display_pos>0)&&(display_line[display_pos-DISPLAY_LINES]<0)) display_pos--;
+  }  
 }
 
 //----------------------------------------------------------------
 // Uzivatelske rozhrani
 
 SimpleTerminal st; //vsichi to tak v arduinu delaji, tak to taky tak budeme pachat
-#define TEMP_REC_SIZE   32  //delka zaznamu
-#define TEMP_POS_ADDR   0   //pozice adresy
-#define TEMP_LEN_ADDR   8   //delka adresy
-#define TEMP_POS_ORDER  8   //poradi na displeji
-#define TEMP_POS_NAME   12  //pocatek jmena, max do konce zanznamu
 
+///Čtení adresy do paměti
+///@param mem kam načíst
+///@param eeprompos adresa v eeprom
+void readAddrFromEEprom(uint8_t* mem, int eeprompos) {
+  readFromEEprom(mem,eeprompos,TEMP_LEN_ADDR);
+}
+
+///Zobrazení 1wire adresy
+void ui_show_1wire(uint8_t* addr) {
+  for (unsigned int j=0;j<8;j++) st.printuinthex(*addr++);
+}
+
+void ui_show_1wire_eeprom(int eeprom_addr) {
+  uint8_t addr[TEMP_LEN_ADDR];
+
+  readAddrFromEEprom(addr,eeprom_addr);
+  ui_show_1wire(addr);  
+}
+
+///Vyrobí popis měřícího místa, tj. aktuální teplotu a text
+///@param buffer kam to budeme tisknout, alespon 21 znaku
+///@param eeprompos adresa zaznamu v eeprom (bacha ne index)
+void maketext(char* buffer, int eeprompos) {
+  uint8_t addr[TEMP_LEN_ADDR];
+  float tempC;
+  int t;
+  char c;
+
+  if (eeprompos<0) {
+    *buffer=0;
+    return;
+  }
+  readAddrFromEEprom(addr,eeprompos);  //vytahneme adresu teplomeru  
+  //ds18b20.
+  tempC=ds18b20.getTempC(addr); //cteme aktualni teplotu, je dost vhodny pred zobrazenim vyslat celkovy povel
+  t=(int)tempC;
+  //Serial.print(eeprompos);Serial.print(' ');Serial.print(tempC);Serial.print(' ');Serial.print(t);  
+  c=' '; //kladna teplota ma na zacatku mezeru
+  if (t<0) { //pokud je pod nulou
+    c='-'; //tak tam bude minus
+    t=-t; //a preklopime znaminko
+  }
+  *buffer++=c; //znaminko
+  *buffer++='0'+t/10; //desitky
+  *buffer++='0'+t%10; //jednotky
+  *buffer++=' '; //oddelovac
+  readFromEEprom((uint8_t*)buffer,eeprompos+TEMP_POS_NAME,TEMP_REC_SIZE-TEMP_POS_NAME);
+  buffer[TEMP_REC_SIZE-TEMP_POS_NAME]='\0';  
+}
+
+///Hledá adresu v předvolbách
+///@param addr hledaná adresa
+///@param adresa záznamu v eepromce
 int look4addr(uint8_t* addr) {
   int j;
   for (unsigned int i=0;i<EEPROM.length();i+=TEMP_REC_SIZE) {
@@ -274,27 +396,68 @@ int look4addr(uint8_t* addr) {
   return -1;  
 }
 
+//Hledani zaznamu podle pozice
+//@param start od jake pozice hledame
+//@param index na nasledujici polozku, -1 pokud uz nemame
+int look4nextdp(int start) {
+  int best,bestdist,pos,x;
+
+  best=-1; //zatim nemame nejlepsi polozku
+  bestdist=999; //a vzdalenost je taky uplne maximalni  
+  for (unsigned int i=0;i<EEPROM.length();i+=TEMP_REC_SIZE) { //prosvistime pameti
+    pos=EEPROM[i+TEMP_POS_ORDER]; //vezmeme pozici ulozenou v eeprom
+    if (pos>start) { //pokud to ma cenu zkoumat, jdeme do nej (mensi nez uvodni nas vubec nezajimaji totiz vubec nezajimaji)
+      x=pos-start; //spocteme vzdalenost od pocatku
+      if (x<bestdist) { //novy kandidat na nejlepsi polozku
+         bestdist=x; //poznamenam si vzdalenost nejlepsiho
+         best=i; //a pozici polozky v eepromce
+      }      
+    }    
+  }
+  return best; //vracime nejlepsi vysledek
+}
+
+///Vyrobi pole se serazenejma polozkam
+void make_display_lines(void) {
+  int i,dp,addr;
+    
+  dp=0; //zaciname prvni pozici  
+  for (i=0;i<MAX_LINES;i++) {    
+    addr=look4nextdp(dp); //zkusime najit vhodnyho kandidata
+    if (addr<0) break;
+    display_line[i]=addr; //ulozim do policka
+    dp=EEPROM[addr+TEMP_POS_ORDER]; //jeho displaypos je pristi nejlepsi
+  }
+  for (;i<MAX_LINES;i++) display_line[i]=-1; //zbytek pole vygumujeme
+  //st.println(F("Make lines:"));for (i=0;i<MAX_LINES;i++) {st.printuint(i);st.printspace();st.printuint(display_line[i]);st.println();}
+}
+
+//Zobrazeni aktualnich dat
+void ui_show(void) {
+  int dp,addr;
+  char bufik[32];
+  
+  ds18b20.requestTemperatures(); //chceme merit vsechno
+  dp=0; //zaciname od nejnizsiho
+  do { //vyskok uprostred
+    addr=display_line[dp++]; //vezmu si adresu z tabulky
+    if (addr<0) return; //pokud konec, tak konec
+    maketext(bufik,addr); //vyrob popis mericiho mistecka
+    st.println(bufik); //posleme to na displej    
+  } while (1); //vyskok uprostred
+}
+
+///Inicializace uživatelského rozhraní
 void ui_init(void) {
   Serial.begin(9600); //startujeme seriak  
   st.begin(&Serial,SimpleTerminal::POST_CR|SimpleTerminal::POST_LF|SimpleTerminal::PRE_CR|SimpleTerminal::PRE_LF|SimpleTerminal::CHAR_ECHO|SimpleTerminal::LINE_ECHO); //startujeme lidske rozhrani na seriaku  
-  st.println(F("Startujem"));
+  // http://patorjk.com/software/taag/#p=display&f=Small&t=MultiThermometer
+  st.println(F("\r\n  __  __      _ _   _ _____ _                                _"\
+               "\r\n |  \\/  |_  _| | |_(_)_   _| |_  ___ _ _ _ __  ___ _ __  ___| |_ ___ _ _"\
+               "\r\n | |\\/| | || | |  _| | | | | ' \\/ -_) '_| '  \\/ _ \\ '  \\/ -_)  _/ -_) '_|"\
+               "\r\n |_|  |_|\\_,_|_|\\__|_| |_| |_||_\\___|_| |_|_|_\\___/_|_|_\\___|\\__\\___|_|"));                                                                         
 }
 
-void ui_list_addr(uint8_t* addr) {
-  for (unsigned int j=0;j<8;j++) st.printuinthex(*addr++);
-}
-
-void ui_list_addr(int eeprom_addr) {
-  uint8_t addr[TEMP_LEN_ADDR];
-  uint8_t* p;
-  
-  int ct=8;
-  p=addr;
-  do {
-    *p++=(uint8_t)EEPROM[eeprom_addr++];
-  } while ((--ct)!=0);
-  ui_list_addr(addr);  
-}
 
 void ui_list(int flags) {
   int id=0;
@@ -306,7 +469,7 @@ void ui_list(int flags) {
     if ((flags==0)&&(EEPROM[i+TEMP_POS_ORDER]==0)) break; //pokud neukazumeme vsechno, tak preskakujeme prazdny
     st.printuint(++id);
     st.printspace();    
-    ui_list_addr(i+TEMP_POS_ADDR);
+    ui_show_1wire(i+TEMP_POS_ADDR);
     st.printspace();
     st.printuint(EEPROM[i+TEMP_POS_ORDER]);
     st.printspace();
@@ -321,6 +484,9 @@ void ui_list(int flags) {
   st.post_crlf();
 }
 
+//Skenovani 1wire sbernice kombinovane s ulozenim vybraneho id.
+//@param store_scanpos TODO
+//@param store_id TODO
 void ui_scan(int store_scanpos, unsigned int store_id) {
   uint8_t addr[8];
   int scanpos,id;
@@ -347,7 +513,7 @@ void ui_scan(int store_scanpos, unsigned int store_id) {
       if ((store_id==0)||(id<0)) { //bud ukazujeme vsechno, nebo jen zatim neznamy
         st.printuint(scanpos); //ukaz poradi na 1wire
         st.printspace(); //oddelovac
-        ui_list_addr(addr); //1wire adresa    
+        ui_show_1wire(addr); //1wire adresa    
         if (id>=0) st.printuint((id/TEMP_REC_SIZE)+1);        
         st.println();
       }
@@ -369,8 +535,9 @@ void ui_proc(void) {
                "\r\set id dp name  setup memory: id=memory id, dp=display position, name=name of thermometter"\
                "\r\nscan           look for a new thermometter(s) on 1wire bus (not used thermometter)"\
                "\r\nscanall        show all thermometter(s) connected on 1wire bus"\
-               "\r\nstore pos id    store thermometter 1wire address to memory: pos=scan possition, id=memory id"\
+               "\r\nstore pos id   store thermometter 1wire address to memory: pos=scan possition, id=memory id"\
                "\r\nformat         erase all memory possitions"\
+               "\r\nshow           show actual data"\
                ));
   } else if (line.equalsIgnoreCase(F("list"))) {
     ui_list(0);
@@ -395,6 +562,7 @@ void ui_proc(void) {
         }
       }
     }
+    make_display_lines(); //prepocitame pole pro zobrazeni
   } else if (line.equalsIgnoreCase(F("format"))) {
     st.println(F("format in progress..."));
     for (unsigned int i=0;i<EEPROM.length();i++) EEPROM[i]=0; //projedem celou eeprom a vymazeme to    
@@ -403,14 +571,17 @@ void ui_proc(void) {
     ui_scan(-1,0); //jenom to ukaz neznamy teplomery
   } else if (line.equalsIgnoreCase(F("scan"))) {
     ui_scan(-1,1); //ukaz uplne vsechno
-  } else if (line.startsWith(F("store"))) {
+  } else if (line.startsWith(F("store "))) {
     int s1=line.indexOf(F(" ")); //odelovac mezi store a scanpos
     int s2=line.indexOf(F(" "),s1+1); //oddelovac scanpos a id
     int scanpos=st.parseInt(s1); //vyprasime scanpos
     int id=st.parseInt(s2)-1; //vyprasime idcko
     ui_scan(scanpos,id); //a zkusime to ulozit
+    make_display_lines(); //prepocitame pole pro zobrazeni
   } else if (line.equalsIgnoreCase(F("scani2c"))) {
     ScanI2C(&st);
+  } else if (line.equalsIgnoreCase(F("show"))) {
+    ui_show();
   } else {
     st.println(F("Unknown command"),&line);
   } 
@@ -421,14 +592,14 @@ void ui_proc(void) {
 // Hlavni udalosti arduina
 
 void setup() {  
-  
+  ds18b20.begin(); //inicializace dallas teplomeru  
   display_init();   //displej
   ui_init(); //startujeme uzivatelske rozhrani
-  //inicializace dallas teplomeru
-  //ds18b20.begin();  
-  //wire1_read();
+  make_display_lines(); //vyrobime pole pro zobrazovani  
 }
 
 void loop() {  
-  ui_proc();  //procedurka uzivatelskeho rozhrani
+  ui_proc();  //procedurka serioveho uzivatelskeho rozhrani
+  key_proc(); //procedura cudliku
+  display_show(0);
 }
