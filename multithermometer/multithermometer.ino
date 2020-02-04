@@ -8,8 +8,8 @@
 // Zadratovani a dalsi konstanty
 
 #define PIN_1WIRE     3 //1wire teplomery
-#define PIN_KEY_UP    0 //cudl nahoru
-#define PIN_KEY_DOWN  1 //cudl dolu
+#define PIN_KEY_UP    10 //cudl nahoru
+#define PIN_KEY_DOWN  11 //cudl dolu
 
 #define TEMP_REC_SIZE   32  //delka zaznamu
 #define TEMP_POS_ADDR   0   //pozice adresy
@@ -273,8 +273,6 @@ void display_init(void) {
   //lcd.print(F("jdu spat. Dobrou."));
 }
 
-
-
 void display_show(int pos) {
   unsigned int i,addr,p;
   char bufik[32];
@@ -283,7 +281,7 @@ void display_show(int pos) {
   for (i=0;i<DISPLAY_LINES;i++) {
     lcd.setCursor(0, i);
     addr=display_line[pos++];        
-    maketext(bufik,addr); //vyrob popis mericiho mistecka
+    maketext(bufik,addr,1); //vyrob popis mericiho mistecka
     p=strlen(bufik);
     while (p<20) bufik[p++]=' ';
     bufik[20]=0;    
@@ -299,31 +297,35 @@ int display_pos; //od jake pozice zobrazujeme
 uint8_t flt_ku;
 uint8_t flt_kd;
 
+void display_show(void) { //ukaz to na displeji
+  display_show(display_pos); //ukaz to na displeji
+}
 
 int key_proc1(int pin, uint8_t* flt) {
   uint8_t f;
 
   f=*flt; //vezmeme filtr
-  if (digitalRead(pin)==LOW) { //pokud je vstup v log. 0
-    f<<=1; //narotujeme 0
+  if (digitalRead(pin)==LOW) { //pokud je vstup v log. 1
+    f<<=1; //narotujeme 0        
   } else { //pokud je v 1
     f=(f<<1)|1; //pereme tam jednicku
   }
   *flt=f; //novy stav filtru
-  if (f=0x80) return 1;
+  if ((f&0x0F)==0x07) {
+    return 1;
+  }
   return 0;  
 }
 
 void key_proc(void) {
-  int add;
-  
-  add=0;
   if (key_proc1(PIN_KEY_UP,&flt_ku)) { //provedeme filtr cudlu nahoru a pokud se fakt neco deje
-    if (display_pos>0) display_pos--;
+    if (display_pos>0) display_pos--; //pokud je kam coufat, tak uber
+    display_show(); //ukaz to na displeji
   }
   if (key_proc1(PIN_KEY_DOWN,&flt_kd)) { //provedeme filtr cudlu dolu a pokud se fakt neco deje    
-    if ((display_pos-DISPLAY_LINES)>=MAX_LINES) display_pos=DISPLAY_LINES-MAX_LINES;
-    while ((display_pos>0)&&(display_line[display_pos-DISPLAY_LINES]<0)) display_pos--;
+    if (display_pos<(MAX_LINES-DISPLAY_LINES-1)) display_pos++; //pridame pokud jsme alespon teoreticky v rozsahu   
+    while ((display_pos>0)&&(display_line[display_pos+DISPLAY_LINES-1]<0)) display_pos--; //upravime s ohledem na polozky na displeji
+    display_show(); //ukaz to na displeji
   }  
 }
 
@@ -354,7 +356,7 @@ void ui_show_1wire_eeprom(int eeprom_addr) {
 ///Vyrobí popis měřícího místa, tj. aktuální teplotu a text
 ///@param buffer kam to budeme tisknout, alespon 21 znaku
 ///@param eeprompos adresa zaznamu v eeprom (bacha ne index)
-void maketext(char* buffer, int eeprompos) {
+void maketext(char* buffer, int eeprompos, int mode) {
   uint8_t addr[TEMP_LEN_ADDR];
   float tempC;
   int t;
@@ -377,6 +379,12 @@ void maketext(char* buffer, int eeprompos) {
   *buffer++=c; //znaminko
   *buffer++='0'+t/10; //desitky
   *buffer++='0'+t%10; //jednotky
+  if (mode>0) {
+    int t=((int)(tempC*100))%100;
+    *buffer++='.'; //oddelovac
+    *buffer++='0'+t/10; //desetiny
+    if (mode>1) *buffer++='0'+t%10; //setiny    
+  }
   *buffer++=' '; //oddelovac
   readFromEEprom((uint8_t*)buffer,eeprompos+TEMP_POS_NAME,TEMP_REC_SIZE-TEMP_POS_NAME);
   buffer[TEMP_REC_SIZE-TEMP_POS_NAME]='\0';  
@@ -436,13 +444,12 @@ void make_display_lines(void) {
 void ui_show(void) {
   int dp,addr;
   char bufik[32];
-  
-  ds18b20.requestTemperatures(); //chceme merit vsechno
+    
   dp=0; //zaciname od nejnizsiho
   do { //vyskok uprostred
     addr=display_line[dp++]; //vezmu si adresu z tabulky
     if (addr<0) return; //pokud konec, tak konec
-    maketext(bufik,addr); //vyrob popis mericiho mistecka
+    maketext(bufik,addr,2); //vyrob popis mericiho mistecka
     st.println(bufik); //posleme to na displej    
   } while (1); //vyskok uprostred
 }
@@ -591,15 +598,28 @@ void ui_proc(void) {
 //----------------------------------------------------------------
 // Hlavni udalosti arduina
 
+unsigned long next_sec;
+
 void setup() {  
   ds18b20.begin(); //inicializace dallas teplomeru  
   display_init();   //displej
   ui_init(); //startujeme uzivatelske rozhrani
   make_display_lines(); //vyrobime pole pro zobrazovani  
+  next_sec=millis(); 
+  /* //ladici dalsi jakoteplomery
+  display_line[3]=display_line[0];
+  display_line[4]=display_line[1];
+  display_line[5]=display_line[2];
+  display_line[6]=display_line[3];
+  */
 }
 
 void loop() {  
+  if (next_sec<millis()) { //pokud nastala vterina
+    next_sec+=1000; //tak se pochystame na prichod dalsi vteriny
+    ds18b20.requestTemperatures(); //chceme merit vsechno
+    display_show(); //ukaz to na displeji
+  }
   ui_proc();  //procedurka serioveho uzivatelskeho rozhrani
-  key_proc(); //procedura cudliku
-  display_show(0);
+  key_proc(); //procedura cudliku  
 }
