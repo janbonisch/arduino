@@ -615,7 +615,7 @@ void setup() {
 }
 
 void loop() {  
-  if (next_sec<millis()) { //pokud nastala vterina
+  if ((next_sec-millis())>=1000) { //pokud nastala vterina
     next_sec+=1000; //tak se pochystame na prichod dalsi vteriny
     ds18b20.requestTemperatures(); //chceme merit vsechno
     display_show(); //ukaz to na displeji
