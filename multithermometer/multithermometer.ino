@@ -4,18 +4,24 @@
 #include <LiquidCrystal_I2C.h>    //https://www.makerguides.com/character-i2c-lcd-arduino-tutorial/
 #include <EEPROM.h>
 
+const char fw_ver[]="v1.0";
+
 //----------------------------------------------------------------
 // Zadratovani a dalsi konstanty
 
+#define PIN_RS485     2 //rizeni smeru rs485
 #define PIN_1WIRE     3 //1wire teplomery
-#define PIN_KEY_UP    10 //cudl nahoru
-#define PIN_KEY_DOWN  11 //cudl dolu
+#define PIN_KEY_UP    4 //cudl nahoru
+#define PIN_KEY_DOWN  5 //cudl dolu
 
 #define TEMP_REC_SIZE   32  //delka zaznamu
 #define TEMP_POS_ADDR   0   //pozice adresy
 #define TEMP_LEN_ADDR   8   //delka adresy
 #define TEMP_POS_ORDER  8   //poradi na displeji
 #define TEMP_POS_NAME   12  //pocatek jmena, max do konce zanznamu
+
+#define rs485_tx()  digitalWrite(PIN_RS485,HIGH)  //zahajeni vysilani
+#define rs485_rx()  digitalWrite(PIN_RS485,LOW)   //zahajeni prijmu
 
 //----------------------------------------------------------------
 // Jednoduchy radkovy terminal na streamu
@@ -49,6 +55,7 @@
     void println(char* str);
     void println(const char* str);
     void println(const __FlashStringHelper* s1, String* s2);
+    void print(char* str);
     void print(const __FlashStringHelper* str);
     void printspace(void);
     void printuint(unsigned int d);
@@ -92,6 +99,10 @@ void SimpleTerminal::pre_crlf(void) {
 void SimpleTerminal::post_crlf(void) {
   if (flags&POST_CR) s->write(13);
   if (flags&POST_LF) s->write(10);
+}
+
+void SimpleTerminal::print(char* str) {
+  s->print(str);
 }
 
 void SimpleTerminal::print(const __FlashStringHelper* str) {
@@ -161,7 +172,8 @@ int SimpleTerminal::parseInt(int pos) {
 
 int SimpleTerminal::proc(void) {  
   unsigned char c;
-  
+
+  rs485_rx(); //prijem
   while (s->available()!=0) { //dokud mame neco ke cteni
     c=s->read(); //nacteme znak
     switch (c) {
@@ -189,12 +201,18 @@ int SimpleTerminal::proc(void) {
         break;
     }
     flags&=~(SKIP_CR|SKIP_LF); //zahodime priznaky detektoru dvojznaku <CR><LF> resp. <LF><CR>
-    if ((flags&CHAR_ECHO)!=0) s->write(c); //pokud mame echo, tak echujeme
+    if ((flags&CHAR_ECHO)!=0) {
+      rs485_tx();
+      s->write(c); //pokud mame echo, tak echujeme
+    }
   }
   return 0;
 proc_new_line:
   flags|=c; //modifikace priznaku
-  if ((flags&LINE_ECHO)!=0) showbuf();
+  if ((flags&LINE_ECHO)!=0) {
+    rs485_tx();
+    showbuf();
+  }
   return 1; //oznamujeme, ze mame
 }
 
@@ -212,12 +230,18 @@ void readFromEEprom(uint8_t* mem, int eeprom_addr, int ct) {
 }
 
 //----------------------------------------------------------------
+// RS485
+
+void rs485_init(void) {
+  pinMode(PIN_RS485,OUTPUT); //je to vystup
+  rs485_rx(); //a pochystame prijem
+}
+
+//----------------------------------------------------------------
 // Dallas 1wire
 
 OneWire wire1(PIN_1WIRE); //jednodrat na urceny drat
 DallasTemperature ds18b20(&wire1); // vytvoření instance senzoryDS z knihovny DallasTemperature
-
-
 
 //----------------------------------------------------------------
 // Display
@@ -259,18 +283,18 @@ void ScanI2C(SimpleTerminal* st) {
 void display_init(void) {
   lcd.init();
   lcd.backlight();  
-
   lcd.setCursor(0, 0);
-  //         01234567890123456789
-  lcd.print(F("*** Hello World! ***")); // Print the string "Hello World!"
+  //           01234567890123456789  
+  lcd.print(F("********************"));
   lcd.setCursor(0, 1);
-  //         01234567890123456789
-  lcd.print(F("Displej displejuje! "));
+  //           01234567890123456789
+  lcd.print(F("* Multithermometer *"));
   lcd.setCursor(0, 2);
   //         01234567890123456789
-  //lcd.print(F("Pokracovani priste,"));
-  //lcd.setCursor(0, 3);
-  //lcd.print(F("jdu spat. Dobrou."));
+  lcd.print(F("********************"));
+  lcd.setCursor(21-sizeof(fw_ver), 3);
+  //         01234567890123456789
+  lcd.print(fw_ver);  
 }
 
 void display_show(int pos) {
@@ -305,13 +329,13 @@ int key_proc1(int pin, uint8_t* flt) {
   uint8_t f;
 
   f=*flt; //vezmeme filtr
-  if (digitalRead(pin)==LOW) { //pokud je vstup v log. 1
+  if (digitalRead(pin)==LOW) { //pokud je vstup log.0
     f<<=1; //narotujeme 0        
   } else { //pokud je v 1
     f=(f<<1)|1; //pereme tam jednicku
   }
   *flt=f; //novy stav filtru
-  if ((f&0x0F)==0x07) {
+  if ((f&0x0F)==0x08) {
     return 1;
   }
   return 0;  
@@ -327,6 +351,13 @@ void key_proc(void) {
     while ((display_pos>0)&&(display_line[display_pos+DISPLAY_LINES-1]<0)) display_pos--; //upravime s ohledem na polozky na displeji
     display_show(); //ukaz to na displeji
   }  
+}
+
+void key_init(void) {
+  pinMode(PIN_KEY_UP,INPUT);
+  pinMode(PIN_KEY_DOWN,INPUT);
+  digitalWrite(PIN_KEY_UP,HIGH);
+  digitalWrite(PIN_KEY_DOWN,HIGH);
 }
 
 //----------------------------------------------------------------
@@ -370,20 +401,26 @@ void maketext(char* buffer, int eeprompos, int mode) {
   //ds18b20.
   tempC=ds18b20.getTempC(addr); //cteme aktualni teplotu, je dost vhodny pred zobrazenim vyslat celkovy povel
   t=(int)tempC;
-  //Serial.print(eeprompos);Serial.print(' ');Serial.print(tempC);Serial.print(' ');Serial.print(t);  
-  c=' '; //kladna teplota ma na zacatku mezeru
-  if (t<0) { //pokud je pod nulou
-    c='-'; //tak tam bude minus
-    t=-t; //a preklopime znaminko
-  }
-  *buffer++=c; //znaminko
-  *buffer++='0'+t/10; //desitky
-  *buffer++='0'+t%10; //jednotky
-  if (mode>0) {
-    int t=((int)(tempC*100))%100;
-    *buffer++='.'; //oddelovac
-    *buffer++='0'+t/10; //desetiny
-    if (mode>1) *buffer++='0'+t%10; //setiny    
+  if ((t>-85)&&(t<85)) { // umime teploty jen od -99 do +99
+    c=' '; //kladna teplota ma na zacatku mezeru
+    if (t<0) { //pokud je pod nulou
+      c='-'; //tak tam bude minus
+      t=-t; //a preklopime znaminko
+    }
+    *buffer++=c; //znaminko
+    *buffer++='0'+t/10; //desitky
+    *buffer++='0'+t%10; //jednotky
+    if (mode>0) {
+      int t=((int)(tempC*100))%100;
+      *buffer++='.'; //oddelovac
+      *buffer++='0'+t/10; //desetiny
+      if (mode>1) *buffer++='0'+t%10; //setiny    
+    }
+  } else { //teplota mimo misu, tak to je asi v cudu teplomer
+    mode+=3; //aspon 3 znaky budou vzdy
+    if (mode>3) mode++; //nad tri znaky je tam jeste desetinna tecka, tak ji prihodim    
+    memcpy(buffer,"error!  ",mode); //praskneme tam kus textu
+    buffer+=mode; //a postrcime se za nej
   }
   *buffer++=' '; //oddelovac
   readFromEEprom((uint8_t*)buffer,eeprompos+TEMP_POS_NAME,TEMP_REC_SIZE-TEMP_POS_NAME);
@@ -444,25 +481,31 @@ void make_display_lines(void) {
 void ui_show(void) {
   int dp,addr;
   char bufik[32];
-    
+   
   dp=0; //zaciname od nejnizsiho
+  st.pre_crlf();
   do { //vyskok uprostred
     addr=display_line[dp++]; //vezmu si adresu z tabulky
     if (addr<0) return; //pokud konec, tak konec
     maketext(bufik,addr,2); //vyrob popis mericiho mistecka
-    st.println(bufik); //posleme to na displej    
+    st.print(bufik); //posleme to na displej    
+    st.println();
   } while (1); //vyskok uprostred
+  st.post_crlf();
 }
 
 ///Inicializace uživatelského rozhraní
 void ui_init(void) {
-  Serial.begin(9600); //startujeme seriak  
-  st.begin(&Serial,SimpleTerminal::POST_CR|SimpleTerminal::POST_LF|SimpleTerminal::PRE_CR|SimpleTerminal::PRE_LF|SimpleTerminal::CHAR_ECHO|SimpleTerminal::LINE_ECHO); //startujeme lidske rozhrani na seriaku  
+  Serial.begin(9600); //startujeme seriak    
+  st.begin(&Serial,SimpleTerminal::POST_CR|SimpleTerminal::POST_LF|SimpleTerminal::PRE_CR|SimpleTerminal::PRE_LF|SimpleTerminal::LINE_ECHO); //startujeme lidske rozhrani na seriaku  
   // http://patorjk.com/software/taag/#p=display&f=Small&t=MultiThermometer
-  st.println(F("\r\n  __  __      _ _   _ _____ _                                _"\
-               "\r\n |  \\/  |_  _| | |_(_)_   _| |_  ___ _ _ _ __  ___ _ __  ___| |_ ___ _ _"\
-               "\r\n | |\\/| | || | |  _| | | | | ' \\/ -_) '_| '  \\/ _ \\ '  \\/ -_)  _/ -_) '_|"\
-               "\r\n |_|  |_|\\_,_|_|\\__|_| |_| |_||_\\___|_| |_|_|_\\___/_|_|_\\___|\\__\\___|_|"));                                                                         
+  st.print(F("\r\n  __  __      _ _   _ _____ _                                _"\
+             "\r\n |  \\/  |_  _| | |_(_)_   _| |_  ___ _ _ _ __  ___ _ __  ___| |_ ___ _ _"\
+             "\r\n | |\\/| | || | |  _| | | | | ' \\/ -_) '_| '  \\/ _ \\ '  \\/ -_)  _/ -_) '_|"\
+             "\r\n |_|  |_|\\_,_|_|\\__|_| |_| |_||_\\___|_| |_|_|_\\___/_|_|_\\___|\\__\\___|_|     "));
+  st.print((char*)fw_ver);
+  st.println();  
+  delay(100);
 }
 
 
@@ -476,7 +519,7 @@ void ui_list(int flags) {
     if ((flags==0)&&(EEPROM[i+TEMP_POS_ORDER]==0)) break; //pokud neukazumeme vsechno, tak preskakujeme prazdny
     st.printuint(++id);
     st.printspace();    
-    ui_show_1wire(i+TEMP_POS_ADDR);
+    ui_show_1wire_eeprom(i+TEMP_POS_ADDR);
     st.printspace();
     st.printuint(EEPROM[i+TEMP_POS_ORDER]);
     st.printspace();
@@ -531,20 +574,20 @@ void ui_scan(int store_scanpos, unsigned int store_id) {
 
 void ui_proc(void) {
   if (st.proc()==0) return; //pokud se nic nedeje, tak koncime
-  String line=st.getstring(); //nabereme vstup v podobe retezce
+  String line=st.getstring(); //nabereme vstup v podobe retezce  
+  rs485_tx();
   if (line.equalsIgnoreCase(F("help"))) {
     st.println(F("HELP"\
                "\r\n----"\
-               "\r\nhelp           this help"\
-               "\r\nshow           show actual data"\
-               "\r\nlist           show used memory possition"\
-               "\r\nlistall        show all memory possition"\
-               "\r\set id dp name  setup memory: id=memory id, dp=display position, name=name of thermometter"\
-               "\r\nscan           look for a new thermometter(s) on 1wire bus (not used thermometter)"\
-               "\r\nscanall        show all thermometter(s) connected on 1wire bus"\
-               "\r\nstore pos id   store thermometter 1wire address to memory: pos=scan possition, id=memory id"\
-               "\r\nformat         erase all memory possitions"\
-               "\r\nshow           show actual data"\
+               "\r\nhelp            this help"\
+               "\r\nshow            show actual data"\
+               "\r\nlist            show used memory possition"\
+               "\r\nlistall         show all memory possition"\
+               "\r\nset id dp name  setup memory: id=memory id, dp=display position, name=name of thermometter"\
+               "\r\nscan            look for a new thermometter(s) on 1wire bus (not used thermometter)"\
+               "\r\nscanall         show all thermometter(s) connected on 1wire bus"\
+               "\r\nstore pos id    store thermometter 1wire address to memory: pos=scan possition, id=memory id"\
+               "\r\nformat          erase all memory possitions"\
                ));
   } else if (line.equalsIgnoreCase(F("list"))) {
     ui_list(0);
@@ -593,6 +636,7 @@ void ui_proc(void) {
     st.println(F("Unknown command"),&line);
   } 
   st.clrbuf(); //mazeme bufik a tim zahajime novy prijem
+  delay(50);  
 }
 
 //----------------------------------------------------------------
@@ -602,7 +646,10 @@ unsigned long next_sec;
 
 void setup() {  
   ds18b20.begin(); //inicializace dallas teplomeru  
-  display_init();   //displej
+  key_init(); //cudliky
+  rs485_init(); //dalkova komunikace
+  rs485_tx();
+  display_init();   //displej  
   ui_init(); //startujeme uzivatelske rozhrani
   make_display_lines(); //vyrobime pole pro zobrazovani  
   next_sec=millis(); 
@@ -615,7 +662,7 @@ void setup() {
 }
 
 void loop() {  
-  if ((next_sec-millis())>=1000) { //pokud nastala vterina
+  if ((millis()>next_sec)) { //pokud nastala vterina
     next_sec+=1000; //tak se pochystame na prichod dalsi vteriny
     ds18b20.requestTemperatures(); //chceme merit vsechno
     display_show(); //ukaz to na displeji
