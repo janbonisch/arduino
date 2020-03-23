@@ -292,7 +292,7 @@ void help(void) {
     "x ..... wake up roomba with power command\r\n"\
     "\r\n"\
     "Setup device ID\r\n"\
-    "A to J  set device id 1 to 10\r\n"\
+    "A to I  set device id 1 to 9\r\n"\
     "\r\n"\
     "\r\n"));
 }
@@ -453,7 +453,7 @@ modc: ir_send_proc(1,1); //send it out without delay (short red led flash)
   }
   if ((ch>='0')&&(ch<='3')) { //0-3 se tmode
     set_mode((ch-'0')<<FL_MODE_SHIFT);
-  } else if ((ch>='A')&&(ch<='J')) { //A to J set ID
+  } else if ((ch>='A')&&(ch<='I')) { //A to I set ID
     set_id(ch-'A'+1);
   } else switch (ch) { //other characters
     case '?':
