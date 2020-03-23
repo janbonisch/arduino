@@ -321,7 +321,7 @@ void modbus_proc() {
   relays=relays_status; //schovam si posledni znamy stav relat
   rtu.process(); //procedura modbus
   relays^=relays_status; //zjistime si zmeny, jako ze neco prislo modbusem
-  relays_change|=relays; //prihodime zmeny  
+  relays_change|=relays; //prihodime zmeny od modbusu
 }
 
 //----------------------------------------------------------------
@@ -361,6 +361,28 @@ uint8_t flags; //priznaky
 #define FL_SEC 0x01 //priznak vteriny
 #define FL_MIN 0x02 //priznak minuty
 
+#define BASE_DEBUG
+
+#ifdef BASE_DEBUG //hrajeme si
+
+void setup() {
+  Serial.begin(9600); //ladici seriak
+  Serial.println("SIOB - debug");
+  Serial.println("============\r\n\r\n");  
+  io_setup(); //zakladni inicializace IO nozek
+  //init4094(); //inicializace retezu posuvnych registru  
+}
+
+void loop() {
+  Serial.println("Kick the dog");
+  //WDOG_PULSE();
+  WDOG_1(); delay(10); WDOG_0();
+  //Serial.println(readin4094(), HEX);  // print as an ASCII-encoded hexadecimal
+  delay(500);  
+}
+
+
+#else BASE_DEBUG  //plna verze desky
 void setup() {  
   ev_init(); //udalost inicializace
   next_tick=(uint8_t)millis(); //inicializace casovani
@@ -395,3 +417,4 @@ void loop() {
   WDOG_PULSE(); //kopneme do cokla
   ev_proc(); //neni nic jinyho na praci, jedem procedury  
 }
+#endif //BASE_DEBUG
