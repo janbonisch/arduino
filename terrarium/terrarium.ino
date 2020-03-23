@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <EEPROM.h>
 #include <OneWire.h>              //http://www.pjrc.com/teensy/arduino_libraries/OneWire.zip
 #include <NeoPixelBus.h>          //https://github.com/Makuna/NeoPixelBus/wiki
 #include <DallasTemperature.h>    //https://github.com/milesburton/Arduino-Temperature-Control-Library
@@ -9,6 +10,7 @@
 #include <RTClib.h>               //https://github.com/adafruit/RTClib
 
 /*
+
 Konektory v ridici jednotce
 ===========================
                                                        .. 
@@ -52,22 +54,23 @@ Konektory v ridici jednotce
 
 //----------------------------------------------------------------
 // Udalosti
-#define EV_PROC    0x01
-#define EV_SEC     0x02
-#define EV_MIN     0x04
-#define EV_INIT    0x08
-#define EV_DONE    0x10
-#define EV_MEAREQ  0x20
-#define EV_STATREQ 0x40
+#define EV_PROC       0x01
+#define EV_SEC        0x02
+#define EV_MIN        0x04
+#define EV_INIT       0x08
+#define EV_DONE       0x10
+#define EV_MEAREQ     0x20
+#define EV_STATREQ    0x40
+#define EV_DISP_INIT  0x80
 
-int events=EV_INIT; //stejne v dalsich knihovnach bude staticka inicializace, tak se k tomu pridame
+uint8_t events; //udalosti
 
-void set_event(int mask) {
+void set_event(uint8_t mask) {
   //TODO: mozna nejak zatomizovat, co az mi hrabne a bude se neco dit v preruseni
   events|=mask;
 }
 
-int tstclr_event(int mask) {
+uint8_t tstclr_event(uint8_t mask) {
   //TODO: mozna nejak zatomizovat, co az mi hrabne a bude se neco dit v preruseni
   if (events&mask) {
     events&=~mask;
@@ -78,27 +81,38 @@ int tstclr_event(int mask) {
 
 //----------------------------------------------------------------
 // Zalohovana pamet
+
 typedef struct {
   RgbColor color=new RgbColor();
   int heating;
+  uint8_t stone_temp;
 } NVRAM;
 
 NVRAM nvram;  //zalohovana pamet
 
 void nvram_init() {
+  uint8_t* ptr;
+  uint8_t i;
+  
   memset(&nvram,0,sizeof(NVRAM)); //nejprve vynulujeme
-  //TODO: dodelat inicializaci
-  nvram.heating=20;  //zatim odhad nejakeho normalniho topeni
-  nvram.color=RgbColor(1,1,1); //aspon neco  
+  ptr=(uint8_t*)&nvram; //tady je pamet
+  for (i=0;i<sizeof(NVRAM);i++) ptr[i]=EEPROM.read(i); //cteme z eepromky do ramky
+  //nvram.heating=20;  //zatim odhad nejakeho normalniho topeni
+  //nvram.color=RgbColor(1,1,1); //aspon neco  
 }
 
 void nvram_update() {
-  //TODO: dodelat zapis
+  uint8_t* ptr;
+  uint8_t i;
+
+  ptr=(uint8_t*)&nvram; //tady je pamet
+  for (i=0;i<sizeof(NVRAM);i++) EEPROM.update(i,ptr[i]); //ochrana proti ohoblovani eeprom (zapis jen kdyz je zmena)
 }
 
 //Obezlicky, aby to vypadalo jako uplne normalni promenna
 #define color nvram.color
 #define heating nvram.heating
+#define stone_temp nvram.stone_temp
 
 //----------------------------------------------------------------
 // Aktualni stavy teraria
@@ -204,25 +218,81 @@ void am2302_read() {
 
 void set_heating(int percent) {
   unsigned int x;
-
-  heating=percent;
+  
   if (percent<=0) { //je to nula nebo jeste min, takze to je spatne
     digitalWrite(PIN_HEATING,0);  
+    percent=0;
   } else if (percent>=100) { //je to vic jak maximum
     digitalWrite(PIN_HEATING,1);  
-    heating=100;
+    percent=100;
   } else { //je to neco rozumneho
     x=(unsigned int)percent; //udelame bez znamenka
     x*=653; //bulharska konstanta aneb int(255/100*256)
     x>>=8;  //zahodim binarni mista
     analogWrite(PIN_HEATING, x);  //takhle snadno zatopim pomoci pwm
   }
+  heating=percent;
   debug_print_set(PRINT_HEAT);
 }
 /*
  * Nejaky namereny hodnoty
  * status: t1=23.00 t2=33.06 t3=23.75 rh1=46.70 heating=30.00 color=1,1,1 time=22:08:23 date=04.11.2019 ale furt leze nahoru
  */
+
+//----------------------------------------------------------------
+// Teplotni regulator
+
+#define temperature_regulator_fb  t2  //kde mame mereni teploty
+#define REG_TRIGGER 0.3F 
+
+void stone_temp_proc(void) {
+  float f;
+  int x;
+
+  if (stone_temp==0) return; //pokud si neprejeme regulaci, tak na to dlabeme
+  f=((float)(stone_temp))-((float)(t2)); //spocteme rozdil teplot
+  Serial.print(F("REGULATOR: pozadovana teplota "));
+  Serial.print(stone_temp);
+  Serial.print(F(", rozdil teplot "));
+  Serial.print(f);
+  Serial.print(F(", "));  
+  if (f>(REG_TRIGGER)) { 
+    f*=80;
+    x=100;
+    if (f<100) {
+      x=(int)f;      
+    }
+  }  
+  set_heating(x); //zkusime to nastavit, ochrana proti kravinam je zabudovana v set_heating  
+  /*
+  Serial.print(F("REGULATOR: pozadovana teplota "));
+  Serial.print(stone_temp);
+  if ((temperature_regulator_fb)>(stone_temp)) {
+    x=0;  
+  } else {
+    x=100;
+  }
+  Serial.print(F(", "));
+  set_heating(x); //zkusime to nastavit, ochrana proti kravinam je zabudovana v set_heating    
+  */
+  /*
+  f=((float)(stone_temp))-((float)(t2)); //spocteme rozdil teplot
+  x=heating; //tolik bylo pred akci
+  if (f>(REG_TRIGGER)) { //pokud je rozdil vetsi
+    x++;
+  } else if (f<(-(REG_TRIGGER))) {
+    x--;    
+  }  
+  Serial.print(F("REGULATOR: pozadovana teplota "));
+  Serial.print(stone_temp);
+  Serial.print(F(", rozdil teplot "));
+  Serial.print(f);
+  Serial.print(F(", topeni pred "));
+  Serial.print(heating);    
+  Serial.print(F(", "));
+  set_heating(x); //zkusime to nastavit, ochrana proti kravinam je zabudovana v set_heating  
+  */
+}
 
 //----------------------------------------------------------------
 //Displej
@@ -269,8 +339,11 @@ void rollLeft() {
   //delay(1000);for (i=0;i<100;i++) {rollLeft();delay(10);}
 */
 
-
-void display_proc(int screen) {    
+void display_proc(int screen) {
+  if (tstclr_event(EV_DISP_INIT)!=0) { //pokud je pozadavek na inicializaci    
+    u8g2.begin(); //a provedeme inicializaci
+  }
+  
   int x1,x2;
   u8g2.setFontRefHeightExtendedText();
   u8g2.setDrawColor(1);
@@ -321,7 +394,7 @@ void display_proc(int screen) {
 
 //ukaz hlavicku
 void show_head(void) {
-  Serial.println(F("\n\nTerrarium v1.1\n==============\n"));  
+  Serial.println(F("\n\nTerrarium v1.2\n==============\n"));  
 }
 
 //Ukaz help
@@ -352,7 +425,6 @@ void print_equal(void) {
 void print_comma(void) {
   Serial.print(',');
 }
-
 
 void print_item(char* name, float value) {
   print_space();
@@ -487,6 +559,19 @@ int read_heating(void) {
   }
 }
 
+int read_stone_temperature(void) {
+  int x;
+  
+  x=read_hexb();        //bereme hexabajt
+  if (x>0x99) {         //pokud je to vic jak 99, 
+    return 100;         //tak fakt jen 100%
+  } else  if (x>=0) {   //pokud je to 0-99
+    return bcd2bin(x);  //tak z toho udelame binarni cislicko
+  } else {              //a pokud je to uplna kravina
+    return stone_temp;  //tak vracime co bylo posledne
+  }  
+}
+
 //Akce na seriovem portu
 void serial_proc(void) {
   char c;
@@ -499,10 +584,15 @@ void serial_proc(void) {
       break;      
     case 'c': //nastaveni barvy
       set_color(read_color()); //ze seriaku nabereme barvu a tu nastavime
+      nvram_update(); //ulozime pro priste
       break; 
     case 'h': //topeni      
       set_heating(read_heating());
+      nvram_update(); //ulozime pro priste
       break;      
+    case 'r': //nastaveni regulatoru teploty na sutru      
+      stone_temp=read_stone_temperature();
+      nvram_update(); //ulozime pro priste      
     case 'm': //pozadavek mereni  
       set_event(EV_MEAREQ); //nahodime pozadavek na mereni     
       break;    
@@ -511,34 +601,8 @@ void serial_proc(void) {
       break;
     case '?':
       show_help(); //ukaz napovedu
-      break;    
+      break; 
   }
-}
-
-//----------------------------------------------------------------
-//Prilepeni udalosti na arduinosystem
-
-//pocatek vsehomira
-void setup() {  
-  //resime po svem, tudis at si trhnou ploutvi ;-)
-}
-
-//hlavni smyce adruina, tady jen rozdeleni do hlavnich udalosti
-void loop() {  
-  if (tstclr_event(EV_INIT)) {
-    ev_init(); //inicializace
-  } else if (tstclr_event(EV_SEC)) {
-    ev_sec(); //vterina
-  } else if (tstclr_event(EV_MIN)) {
-    ev_min(); //minuta
-  } else if (tstclr_event(EV_DONE)) {
-    //TODO: jak se dozvim o vypadku? a co budeme delat?
-  } else if (tstclr_event(EV_PROC)) {
-    proc(); //furtakce
-  } else { //vsechny udalosti vyreseny
-    set_event(EV_PROC); //takhe si zase nahodime takovy to furtnecodelam
-    delay(50); //ale nebudem to prehanet, mozna to poslat chrapat, at to nezere, nebo proste nevim
-  } //zvlastni je, ze kdyz je to min nez 10, tak zacne zlobit seriova komunikace. Proc? nemam paru
 }
 
 //----------------------------------------------------------------
@@ -559,9 +623,9 @@ void ev_init() {
   set_color(color); //nastavime posledne ulozenou hodnotu
 
   //Inicializace dipleje
-  u8g2.begin();
-  display_proc(0);
-
+  set_event(EV_DISP_INIT); //nahodime priznak pozadavku inicializace  
+  display_proc(0); //a provedeme proceduru displeje, ktera vlastni inicializaci provede
+  
   //inicializace vlhko a teplomeru
   am2302.begin();
   am2302_read();
@@ -587,8 +651,7 @@ void ev_init() {
 
 //nova minuta
 void ev_min() {
-  set_event(EV_MEAREQ); //jednou za minutu muzeme zmerit okoli, to nas asik nezabije  
-  u8g2.begin(); //znovuinicializace displeje, protoze to nejako chcipa neboco :-(
+  set_event(EV_MEAREQ|EV_DISP_INIT); //jednou za minutu muzeme zmerit okoli, to nas asik nezabije    
 }
 
 //nova vterina
@@ -602,6 +665,7 @@ void proc() {
   if (tstclr_event(EV_MEAREQ)) { //pozadavek mereni
     am2302_read(); //cteme vlhko a teplo
     wire1_read(); //cteme jednodraty
+    stone_temp_proc(); //regulace teploty na sutru
   } else if (tstclr_event(EV_STATREQ)) { //pozadavek na vyplivnuti dat
     Serial.print(F("status:"));
     print_proc(PRINT_ALL);    
@@ -609,4 +673,30 @@ void proc() {
     serial_proc();
     rtc_proc();      
   }
+}
+
+//----------------------------------------------------------------
+//Prilepeni udalosti na arduinosystem
+
+//pocatek vsehomira
+void setup() {  
+  events=EV_INIT; //nahodime si priznak incializace
+}
+
+//hlavni smyce adruina, tady jen rozdeleni do hlavnich udalosti
+void loop() {  
+  if (tstclr_event(EV_INIT)) {
+    ev_init(); //inicializace
+  } else if (tstclr_event(EV_SEC)) {
+    ev_sec(); //vterina
+  } else if (tstclr_event(EV_MIN)) {
+    ev_min(); //minuta
+  } else if (tstclr_event(EV_DONE)) {
+    //TODO: jak se dozvim o vypadku? a co budeme delat?
+  } else if (tstclr_event(EV_PROC)) {
+    proc(); //furtakce
+  } else { //vsechny udalosti vyreseny
+    set_event(EV_PROC); //takhe si zase nahodime takovy to furtnecodelam
+    delay(50); //ale nebudem to prehanet, mozna to poslat chrapat, at to nezere, nebo proste nevim
+  } //zvlastni je, ze kdyz je to min nez 10, tak zacne zlobit seriova komunikace. Proc? nemam paru
 }
