@@ -73,9 +73,15 @@
 #if !defined(ENC28J60_CONTROL_CS)
    #if defined(__AVR__) || defined(ESP8266) || defined(__RFduino__)
       // Arduino Uno (__AVR__) SS defined to pin 10
+      // Arduino Leonardo (ARDUINO_AVR_LEONARDO) SS defined to LED_BUILTIN_RX (17)
       // Arduino Mega(__AVR_ATmega2560__) SS defined to pin 53
       // ESP8266 (ESP8266) SS defined to pin 15
-      #define ENC28J60_CONTROL_CS     SS
+      #if defined(ARDUINO_AVR_LEONARDO) || defined(ARDUINO_AVR_MICRO)
+        #define ENC28J60_CONTROL_CS     PIN_A10
+        #warning "Using LEONARDO borad PIN_A10 for ENC28J60_CONTROL_CS. Use UIPEthernet::init(uint8_t) to change it."
+      #else
+        #define ENC28J60_CONTROL_CS     SS
+      #endif
    #elif defined(ARDUINO_ARCH_AMEBA) //Defined SS to pin 10
       #define ENC28J60_CONTROL_CS     SS //PC_0 A5 10
    #elif defined(ARDUINO_ARCH_SAM)
@@ -101,16 +107,16 @@
          #define ENC28J60_CONTROL_CS     SPI.nssPin()
          //#define ENC28J60_CONTROL_CS     PA4
       #endif
-   #elif defined(__MK20DX128__) || defined(__MKL26Z64__) || defined(__MK20DX256__) || defined(__MK64FX512__) || defined(__MK66FX1M0__)
+   #elif defined(__MK20DX128__) || defined(__MKL26Z64__) || defined(__MK20DX256__) || defined(__MK64FX512__) || defined(__MK66FX1M0__) || defined(__IMXRT1062__)
       #define ENC28J60_CONTROL_CS     PIN_SPI_SS
-   #endif
-   #if defined(ENC28J60_CONTROL_CS)
-      #warning "Not defined ENC28J60_CONTROL_CS. Use borad default SS pin setting. You can configure in 'utility/Enc28J60Network.h'."
    #endif
 #endif
 #if !defined(ENC28J60_CONTROL_CS)
-   #error "Not defined ENC28J60_CONTROL_CS!"
+   #warning "Default ENC28J60_CONTROL_CS could not be defined! Use UIPEthernet::init(uint8_t) to set it."
+   #define ENC28J60_CONTROL_CS 0
 #endif
+
+extern uint8_t ENC28J60ControlCS;
 
 #if !defined(SPI_MOSI)
    #if defined(__AVR__) || defined(ESP8266) || defined(__RFduino__)
@@ -133,7 +139,7 @@
       #else
          #define SPI_MOSI SPI.mosiPin()
       #endif
-   #elif defined(__MK20DX128__) || defined(__MKL26Z64__) || defined(__MK20DX256__) || defined(__MK64FX512__) || defined(__MK66FX1M0__)
+   #elif defined(__MK20DX128__) || defined(__MKL26Z64__) || defined(__MK20DX256__) || defined(__MK64FX512__) || defined(__MK66FX1M0__) || defined(__IMXRT1062__)
       #define SPI_MOSI PIN_SPI_MOSI
    #endif
 #endif
@@ -162,7 +168,7 @@
       #else
          #define SPI_MISO SPI.misoPin()
       #endif
-   #elif defined(__MK20DX128__) || defined(__MKL26Z64__) || defined(__MK20DX256__) || defined(__MK64FX512__) || defined(__MK66FX1M0__)
+   #elif defined(__MK20DX128__) || defined(__MKL26Z64__) || defined(__MK20DX256__) || defined(__MK64FX512__) || defined(__MK66FX1M0__) || defined(__IMXRT1062__)
       #define SPI_MISO PIN_SPI_MISO
    #endif
 #endif
@@ -190,7 +196,7 @@
       #else
          #define SPI_SCK SPI.sckPin()
       #endif
-   #elif defined(__MK20DX128__) || defined(__MKL26Z64__) || defined(__MK20DX256__) || defined(__MK64FX512__) || defined(__MK66FX1M0__)
+   #elif defined(__MK20DX128__) || defined(__MKL26Z64__) || defined(__MK20DX256__) || defined(__MK64FX512__) || defined(__MK66FX1M0__) || defined(__IMXRT1062__)
       #define SPI_SCK PIN_SPI_SCK
    #endif
 #endif
@@ -198,7 +204,7 @@
    #error "Not defined SPI_SCK!"
 #endif
 
-#if defined(__MBED__) || defined(ARDUINO_ARCH_SAM) || defined(ARDUINO_ARCH_SAMD) || defined(__ARDUINO_ARC__) || defined(__STM32F1__) || defined(__STM32F3__) || defined(STM32F3) || defined(__STM32F4__) || defined(STM32F2) || defined(ESP8266) || defined(ARDUINO_ARCH_AMEBA) || defined(__MK20DX128__) || defined(__MKL26Z64__) || defined(__MK20DX256__) || defined(__MK64FX512__) || defined(__MK66FX1M0__) || defined(__RFduino__) || defined(ARDUINO_ARCH_STM32) || defined(ARDUINO_ARCH_ESP32)
+#if defined(__MBED__) || defined(ARDUINO_ARCH_SAM) || defined(ARDUINO_ARCH_SAMD) || defined(__ARDUINO_ARC__) || defined(__STM32F1__) || defined(__STM32F3__) || defined(STM32F3) || defined(__STM32F4__) || defined(STM32F2) || defined(ESP8266) || defined(ARDUINO_ARCH_AMEBA) || defined(__MK20DX128__) || defined(__MKL26Z64__) || defined(__MK20DX256__) || defined(__MK64FX512__) || defined(__MK66FX1M0__) || defined(__IMXRT1062__) || defined(__RFduino__) || defined(ARDUINO_ARCH_STM32) || defined(ARDUINO_ARCH_ESP32) || defined(ARDUINO_ARCH_AVR) || defined(ARDUINO_ARCH_MEGAAVR)
    #if defined(ARDUINO) && defined(STM32F3)
       #include "HardwareSPI.h"
    #else

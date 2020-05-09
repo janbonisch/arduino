@@ -38,6 +38,8 @@ struct HsbColor;
 // ------------------------------------------------------------------------
 struct RgbwColor
 {
+    typedef NeoRgbwCurrentSettings SettingsObject;
+
     // ------------------------------------------------------------------------
     // Construct a RgbwColor using R, G, B, W values (0-255)
     // ------------------------------------------------------------------------
@@ -127,6 +129,22 @@ struct RgbwColor
     uint8_t CalculateBrightness() const;
 
     // ------------------------------------------------------------------------
+    // Dim will return a new color that is blended to black with the given ratio
+    // ratio - (0-255) where 255 will return the original color and 0 will return black
+    // 
+    // NOTE: This is a simple linear blend
+    // ------------------------------------------------------------------------
+    RgbwColor Dim(uint8_t ratio) const;
+
+    // ------------------------------------------------------------------------
+    // Brighten will return a new color that is blended to white with the given ratio
+    // ratio - (0-255) where 255 will return the original color and 0 will return white
+    // 
+    // NOTE: This is a simple linear blend
+    // ------------------------------------------------------------------------
+    RgbwColor Brighten(uint8_t ratio) const;
+
+    // ------------------------------------------------------------------------
     // Darken will adjust the color by the given delta toward black
     // NOTE: This is a simple linear change
     // delta - (0-255) the amount to dim the color
@@ -165,6 +183,18 @@ struct RgbwColor
         float x, 
         float y);
 
+    uint16_t CalcTotalTenthMilliAmpere(const SettingsObject& settings)
+    {
+        auto total = 0;
+
+        total += R * settings.RedTenthMilliAmpere / 255;
+        total += G * settings.GreenTenthMilliAmpere / 255;
+        total += B * settings.BlueTenthMilliAmpere / 255;
+        total += W * settings.WhiteCurrent / 255;
+
+        return total;
+    }
+
     // ------------------------------------------------------------------------
     // Red, Green, Blue, White color members (0-255) where 
     // (0,0,0,0) is black and (255,255,255, 0) and (0,0,0,255) is white
@@ -174,5 +204,23 @@ struct RgbwColor
     uint8_t G;
     uint8_t B;
     uint8_t W;
+
+private:
+    inline static uint8_t _elementDim(uint8_t value, uint8_t ratio)
+    {
+        return (value * (ratio + 1)) >> 8;
+    }
+
+    inline static uint8_t _elementBrighten(uint8_t value, uint8_t ratio)
+    {
+        uint16_t element = (value << 8) / (ratio + 1);
+
+        if (element > 255)
+        {
+            element = 255;
+        }
+
+        return element;
+    }
 };
 

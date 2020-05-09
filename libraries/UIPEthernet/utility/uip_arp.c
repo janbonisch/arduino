@@ -58,7 +58,6 @@
  *
  */
 
-
 #include "uip_arp.h"
 
 #include <string.h>
@@ -246,8 +245,22 @@ uip_arp_ipin(void)
      (uip_hostaddr[1] & uip_netmask[1])) {
     return;
   }
+  /* Insert the entry only if it was ment for us (not broadcast) or already appears in the table */
+#if UIP_ADD_ALL_BROADCAST_TO_ARP
   uip_arp_update(IPBUF->srcipaddr, &(IPBUF->ethhdr.src));
-  
+#else 
+  if(uip_ipaddr_cmp(IPBUF->destipaddr, uip_hostaddr)) {
+    uip_arp_update(IPBUF->srcipaddr, &(IPBUF->ethhdr.src));
+  } else {
+    for(i = 0; i < UIP_ARPTAB_SIZE; ++i) {
+      struct arp_entry *tabptr = &arp_table[i];
+      if(uip_ipaddr_cmp(IPBUF->srcipaddr, tabptr->ipaddr)) {
+        uip_arp_update(IPBUF->srcipaddr, &(IPBUF->ethhdr.src));
+	break;
+      }
+    }
+  }
+#endif  
   return;
 }
 //#endif /* 0 */
@@ -363,8 +376,10 @@ uip_arp_out(void)
      packet with an ARP request for the IP address. */
 
   /* First check if destination is a local broadcast. */
-  if(uip_ipaddr_cmp(IPBUF->destipaddr, broadcast_ipaddr)) {
-    memcpy(IPBUF->ethhdr.dest.addr, broadcast_ethaddr.addr, 6);
+  if(uip_ipaddr_cmp(IPBUF->destipaddr, broadcast_ipaddr)
+        || ((IPBUF->destipaddr[0]==(uip_hostaddr[0] | (0xFFFF&(~uip_netmask[0])))) && (IPBUF->destipaddr[1]==(uip_hostaddr[1] | (0XFFFF&(~uip_netmask[1]))))) //Local Broatcast  
+    ) {
+    memcpy(IPBUF->ethhdr.dest.addr, broadcast_ethaddr.addr, 6); 
   } else {
     /* Check if the destination address is on the local network. */
     if(!uip_ipaddr_maskcmp(IPBUF->destipaddr, uip_hostaddr, uip_netmask)) {
@@ -379,7 +394,11 @@ uip_arp_out(void)
       
     for(i = 0; i < UIP_ARPTAB_SIZE; ++i) {
       tabptr = &arp_table[i];
+#if UIP_ADD_ALL_BROADCAST_TO_ARP
       if(uip_ipaddr_cmp(ipaddr, tabptr->ipaddr)) {
+#else 
+      if(uip_ipaddr_cmp(ipaddr, tabptr->ipaddr) && uip_eth_addr_valid(tabptr->ethaddr.addr)) {
+#endif
 	break;
       }
     }
@@ -405,6 +424,13 @@ uip_arp_out(void)
       uip_appdata = &uip_buf[UIP_TCPIP_HLEN + UIP_LLH_LEN];
     
       uip_len = sizeof(struct arp_hdr);
+#if UIP_ADD_ALL_BROADCAST_TO_ARP
+#else
+      /* Insert an invalid entry in the table */
+      struct uip_eth_addr zero_address;
+      memset(zero_address.addr, 0, 6);
+      uip_arp_update(ipaddr, &zero_address);
+#endif
       return;
     }
 
@@ -417,6 +443,16 @@ uip_arp_out(void)
 
   uip_len += sizeof(struct uip_eth_hdr);
 }
+/*-----------------------------------------------------------------------------------*/
+
+/**
+ * Debug method used to get a pointer to the arp table. Useful
+ * to print and examine the data
+ */
+//void * uip_debug_get_arp_table_ref(void) {
+//  return (void*)arp_table;
+//}
+
 /*-----------------------------------------------------------------------------------*/
 
 /** @} */

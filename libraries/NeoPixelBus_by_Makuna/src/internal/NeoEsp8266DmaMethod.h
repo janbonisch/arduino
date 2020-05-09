@@ -48,7 +48,9 @@ extern "C"
 #include "ets_sys.h"
 #include "user_interface.h"
 
+#if !defined(__CORE_ESP8266_VERSION_H) || defined(ARDUINO_ESP8266_RELEASE_2_5_0)
     void rom_i2c_writeReg_Mask(uint32_t block, uint32_t host_id, uint32_t reg_add, uint32_t Msb, uint32_t Lsb, uint32_t indata);
+#endif
 }
 
 struct slc_queue_item
@@ -63,11 +65,48 @@ struct slc_queue_item
     uint32  next_link_ptr;
 };
 
-class NeoEsp8266DmaSpeed800KbpsBase
+class NeoEsp8266DmaSpeedBase
+{
+public:
+	static const uint8_t Level = 0x00;
+	static uint16_t Convert(uint8_t value)
+	{
+		const uint16_t bitpatterns[16] =
+		{
+			0b1000100010001000, 0b1000100010001110, 0b1000100011101000, 0b1000100011101110,
+			0b1000111010001000, 0b1000111010001110, 0b1000111011101000, 0b1000111011101110,
+			0b1110100010001000, 0b1110100010001110, 0b1110100011101000, 0b1110100011101110,
+			0b1110111010001000, 0b1110111010001110, 0b1110111011101000, 0b1110111011101110,
+		};
+
+		return bitpatterns[value];
+	}
+};
+
+class NeoEsp8266DmaInvertedSpeedBase
+{
+public:
+	static const uint8_t Level = 0xFF;
+	static uint16_t Convert(uint8_t value)
+	{
+		const uint16_t bitpatterns[16] =
+		{
+			0b0111011101110111, 0b0111011101110001, 0b0111011100010111, 0b0111011100010001,
+			0b0111000101110111, 0b0111000101110001, 0b0111000100010111, 0b0111000100010001,
+			0b0001011101110111, 0b0001011101110001, 0b0001011100010111, 0b0001011100010001,
+			0b0001000101110111, 0b0001000101110001, 0b0001000100010111, 0b0001000100010001,
+		};
+
+		return bitpatterns[value];
+	}
+};
+
+class NeoEsp8266DmaSpeed800KbpsBase : public NeoEsp8266DmaSpeedBase
 {
 public:
     const static uint32_t I2sClockDivisor = 3;
     const static uint32_t I2sBaseClockDivisor = 16;
+    const static uint32_t ByteSendTimeUs = 10; // us it takes to send a single pixel element at 800khz speed
 };
 
 class NeoEsp8266DmaSpeedWs2812x : public NeoEsp8266DmaSpeed800KbpsBase
@@ -82,18 +121,86 @@ public:
     const static uint32_t ResetTimeUs = 80;
 };
 
+class NeoEsp8266DmaInvertedSpeedTm1814 : public NeoEsp8266DmaSpeed800KbpsBase
+{
+public:
+    const static uint32_t ResetTimeUs = 200;
+};
+
 class NeoEsp8266DmaSpeed800Kbps : public NeoEsp8266DmaSpeed800KbpsBase
 {
 public:
     const static uint32_t ResetTimeUs = 50;
 };
 
-class NeoEsp8266DmaSpeed400Kbps
+class NeoEsp8266DmaSpeed400Kbps : public NeoEsp8266DmaSpeedBase
 {
 public:
-    const static uint32_t I2sClockDivisor = 6; 
+    const static uint32_t I2sClockDivisor = 6;
     const static uint32_t I2sBaseClockDivisor = 16;
+    const static uint32_t ByteSendTimeUs = 20; // us it takes to send a single pixel element at 400khz speed
     const static uint32_t ResetTimeUs = 50;
+};
+
+class NeoEsp8266DmaSpeedApa106 : public NeoEsp8266DmaSpeedBase
+{
+public:
+	const static uint32_t I2sClockDivisor = 4; 
+	const static uint32_t I2sBaseClockDivisor = 16;
+	const static uint32_t ByteSendTimeUs = 17; // us it takes to send a single pixel element
+	const static uint32_t ResetTimeUs = 50;
+};
+
+
+
+class NeoEsp8266DmaInvertedSpeed800KbpsBase : public NeoEsp8266DmaInvertedSpeedBase
+{
+public:
+	const static uint32_t I2sClockDivisor = 3;
+	const static uint32_t I2sBaseClockDivisor = 16;
+	const static uint32_t ByteSendTimeUs = 10; // us it takes to send a single pixel element at 800khz speed
+};
+
+class NeoEsp8266DmaInvertedSpeedWs2812x : public NeoEsp8266DmaInvertedSpeed800KbpsBase
+{
+public:
+	const static uint32_t ResetTimeUs = 300;
+};
+
+class NeoEsp8266DmaInvertedSpeedSk6812 : public NeoEsp8266DmaInvertedSpeed800KbpsBase
+{
+public:
+	const static uint32_t ResetTimeUs = 80;
+};
+
+class NeoEsp8266DmaSpeedTm1814 : public NeoEsp8266DmaInvertedSpeed800KbpsBase
+{
+public:
+    const static uint32_t ResetTimeUs = 200;
+};
+
+class NeoEsp8266DmaInvertedSpeed800Kbps : public NeoEsp8266DmaInvertedSpeed800KbpsBase
+{
+public:
+	const static uint32_t ResetTimeUs = 50;
+};
+
+class NeoEsp8266DmaInvertedSpeed400Kbps : public NeoEsp8266DmaInvertedSpeedBase
+{
+public:
+	const static uint32_t I2sClockDivisor = 6;
+	const static uint32_t I2sBaseClockDivisor = 16;
+	const static uint32_t ByteSendTimeUs = 20; // us it takes to send a single pixel element at 400khz speed
+	const static uint32_t ResetTimeUs = 50;
+};
+
+class NeoEsp8266DmaInvertedSpeedApa106 : public NeoEsp8266DmaInvertedSpeedBase
+{
+public:
+	const static uint32_t I2sClockDivisor = 4;
+	const static uint32_t I2sBaseClockDivisor = 16;
+	const static uint32_t ByteSendTimeUs = 17; // us it takes to send a single pixel element
+	const static uint32_t ResetTimeUs = 50;
 };
 
 enum NeoDmaState
@@ -101,6 +208,7 @@ enum NeoDmaState
     NeoDmaState_Idle,
     NeoDmaState_Pending,
     NeoDmaState_Sending,
+    NeoDmaState_Zeroing,
 };
 const uint16_t c_maxDmaBlockSize = 4095;
 const uint16_t c_dmaBytesPerPixelBytes = 4;
@@ -109,20 +217,23 @@ const uint8_t c_I2sPin = 3; // due to I2S hardware, the pin used is restricted t
 template<typename T_SPEED> class NeoEsp8266DmaMethodBase
 {
 public:
-    NeoEsp8266DmaMethodBase(uint16_t pixelCount, size_t elementSize) 
+    NeoEsp8266DmaMethodBase(uint16_t pixelCount, size_t elementSize, size_t settingsSize) :
+        _sizeData(pixelCount * elementSize + settingsSize)
     {
         uint16_t dmaPixelSize = c_dmaBytesPerPixelBytes * elementSize;
+        uint16_t dmaSettingsSize = c_dmaBytesPerPixelBytes * settingsSize;
 
-        _pixelsSize = pixelCount * elementSize;
-        _i2sBufferSize = pixelCount * dmaPixelSize;
+        _i2sBufferSize = pixelCount * dmaPixelSize + dmaSettingsSize;
 
-        _pixels = (uint8_t*)malloc(_pixelsSize);
-        memset(_pixels, 0x00, _pixelsSize);
+        _data = static_cast<uint8_t*>(malloc(_sizeData));
+        memset(_data, 0x00, _sizeData);
 
-        _i2sBuffer = (uint8_t*)malloc(_i2sBufferSize);
-        memset(_i2sBuffer, 0x00, _i2sBufferSize);
+        _i2sBuffer = static_cast<uint8_t*>(malloc(_i2sBufferSize));
+        memset(_i2sBuffer, T_SPEED::Level, _i2sBufferSize);
 
-        memset(_i2sZeroes, 0x00, sizeof(_i2sZeroes));
+        // _i2sBuffer[0] = 0b11101000; // debug, 1 bit then 0 bit
+
+        memset(_i2sZeroes, T_SPEED::Level, sizeof(_i2sZeroes));
 
         _is2BufMaxBlockSize = (c_maxDmaBlockSize / dmaPixelSize) * dmaPixelSize;
 
@@ -132,15 +243,34 @@ public:
         s_this = this; // store this for the ISR
     }
 
-    NeoEsp8266DmaMethodBase(uint8_t pin, uint16_t pixelCount, size_t elementSize) : NeoEsp8266DmaMethodBase(pixelCount, elementSize)
+    NeoEsp8266DmaMethodBase(uint8_t pin, uint16_t pixelCount, size_t elementSize, size_t settingsSize) : 
+        NeoEsp8266DmaMethodBase(pixelCount, elementSize, settingsSize)
     {
     }
 
     ~NeoEsp8266DmaMethodBase()
     {
+        uint8_t waits = 1;
+        while (!IsReadyToUpdate())
+        {
+            waits = 2;
+            yield();
+        }
+
+        // wait for any pending sends to complete
+        // due to internal i2s caching/send delays, this can more that once the data size
+        uint32_t time = micros();
+        while ((micros() - time) < ((getPixelTime() + T_SPEED::ResetTimeUs) * waits))
+        {
+            yield();
+        }
+
         StopDma();
 
-        free(_pixels);
+        s_this = nullptr;
+        pinMode(c_I2sPin, INPUT);
+
+        free(_data);
         free(_i2sBuffer);
         free(_i2sBufDesc);
     }
@@ -153,7 +283,8 @@ public:
     void Initialize()
     {
         StopDma();
-        _dmaState = NeoDmaState_Sending; // start off sending empty buffer
+
+        pinMode(c_I2sPin, FUNCTION_1); // I2S0_DATA
 
         uint8_t* is2Buffer = _i2sBuffer;
         uint32_t is2BufferSize = _i2sBufferSize;
@@ -198,6 +329,11 @@ public:
         // setup the rest of i2s DMA
         //
         ETS_SLC_INTR_DISABLE();
+
+        // start off in sending state as that is what it will be all setup to be
+        // for the interrupt
+        _dmaState = NeoDmaState_Sending; 
+
         SLCC0 |= SLCRXLR | SLCTXLR;
         SLCC0 &= ~(SLCRXLR | SLCTXLR);
         SLCIC = 0xFFFFFFFF;
@@ -213,9 +349,11 @@ public:
         // expect. The TXLINK part still needs a valid DMA descriptor, even if it's unused: the DMA engine will throw
         // an error at us otherwise. Just feed it any random descriptor.
         SLCTXL &= ~(SLCTXLAM << SLCTXLA); // clear TX descriptor address
-        SLCTXL |= (uint32)&(_i2sBufDesc[_i2sBufDescCount-1]) << SLCTXLA; // set TX descriptor address. any random desc is OK, we don't use TX but it needs to be valid
+        // set TX descriptor address. any random desc is OK, we don't use TX but it needs to be valid
+        SLCTXL |= (uint32)&(_i2sBufDesc[_i2sBufDescCount-1]) << SLCTXLA; 
         SLCRXL &= ~(SLCRXLAM << SLCRXLA); // clear RX descriptor address
-        SLCRXL |= (uint32)_i2sBufDesc << SLCRXLA; // set RX descriptor address
+        // set RX descriptor address.  use first of the data addresses
+        SLCRXL |= (uint32)&(_i2sBufDesc[0]) << SLCRXLA; 
 
         ETS_SLC_INTR_ATTACH(i2s_slc_isr, NULL);
         SLCIE = SLCIRXEOF; // Enable only for RX EOF interrupt
@@ -226,8 +364,6 @@ public:
         SLCTXL |= SLCTXLS;
         SLCRXL |= SLCRXLS;
 
-        pinMode(c_I2sPin, FUNCTION_1); // I2S0_DATA
-
         I2S_CLK_ENABLE();
         I2SIC = 0x3F;
         I2SIE = 0;
@@ -237,57 +373,59 @@ public:
         I2SC |= I2SRST;
         I2SC &= ~(I2SRST);
 
-        I2SFC &= ~(I2SDE | (I2STXFMM << I2STXFM) | (I2SRXFMM << I2SRXFM)); // Set RX/TX FIFO_MOD=0 and disable DMA (FIFO only)
+        // Set RX/TX FIFO_MOD=0 and disable DMA (FIFO only)
+        I2SFC &= ~(I2SDE | (I2STXFMM << I2STXFM) | (I2SRXFMM << I2SRXFM)); 
         I2SFC |= I2SDE; //Enable DMA
-        I2SCC &= ~((I2STXCMM << I2STXCM) | (I2SRXCMM << I2SRXCM)); // Set RX/TX CHAN_MOD=0
+        // Set RX/TX CHAN_MOD=0
+        I2SCC &= ~((I2STXCMM << I2STXCM) | (I2SRXCMM << I2SRXCM)); 
 
         // set the rate
         uint32_t i2s_clock_div = T_SPEED::I2sClockDivisor & I2SCDM;
         uint8_t i2s_bck_div = T_SPEED::I2sBaseClockDivisor & I2SBDM;
 
         //!trans master, !bits mod, rece slave mod, rece msb shift, right first, msb right
-        I2SC &= ~(I2STSM | (I2SBMM << I2SBM) | (I2SBDM << I2SBD) | (I2SCDM << I2SCD));
+        I2SC &= ~(I2STSM | I2SRSM | (I2SBMM << I2SBM) | (I2SBDM << I2SBD) | (I2SCDM << I2SCD));
         I2SC |= I2SRF | I2SMR | I2SRSM | I2SRMS | (i2s_bck_div << I2SBD) | (i2s_clock_div << I2SCD);
 
         I2SC |= I2STXS; // Start transmission
     }
 
-    void ICACHE_RAM_ATTR Update()
+    void ICACHE_RAM_ATTR Update(bool)
     {
         // wait for not actively sending data
-        while (_dmaState != NeoDmaState_Idle)
+        while (!IsReadyToUpdate())
         {
             yield();
         }
         FillBuffers();
-
+        
         // toggle state so the ISR reacts
         _dmaState = NeoDmaState_Pending;
     }
 
-    uint8_t* getPixels() const
+    uint8_t* getData() const
     {
-        return _pixels;
+        return _data;
     };
 
-    size_t getPixelsSize() const
+    size_t getDataSize() const
     {
-        return _pixelsSize;
+        return _sizeData;
     }
 
 private:
     static NeoEsp8266DmaMethodBase* s_this; // for the ISR
 
-    size_t    _pixelsSize;    // Size of '_pixels' buffer 
-    uint8_t*  _pixels;        // Holds LED color values
+    const size_t  _sizeData;    // Size of '_data' buffer 
+    uint8_t*  _data;        // Holds LED color values
 
-    uint32_t _i2sBufferSize; // total size of _i2sBuffer
+    size_t _i2sBufferSize; // total size of _i2sBuffer
     uint8_t* _i2sBuffer;  // holds the DMA buffer that is referenced by _i2sBufDesc
 
     // normally 24 bytes creates the minimum 50us latch per spec, but
-    // with the new logic, this latch is used to space between three states
-    // buffer size = (24 * (speed / 50)) / 3
-    uint8_t _i2sZeroes[(24L * (T_SPEED::ResetTimeUs / 50L)) / 3L];
+    // with the new logic, this latch is used to space between mulitple states
+    // buffer size = (24 * (reset time / 50)) / 6
+    uint8_t _i2sZeroes[(24L * (T_SPEED::ResetTimeUs / 50L)) / 6L];
 
     slc_queue_item* _i2sBufDesc;  // dma block descriptors
     uint16_t _i2sBufDescCount;   // count of block descriptors in _i2sBufDesc
@@ -301,15 +439,15 @@ private:
     // in the case of this code, the second to last state descriptor
     volatile static void ICACHE_RAM_ATTR i2s_slc_isr(void)
     {
+        ETS_SLC_INTR_DISABLE();
+
         uint32_t slc_intr_status = SLCIS;
 
         SLCIC = 0xFFFFFFFF;
 
-        if (slc_intr_status & SLCIRXEOF)
+        if ((slc_intr_status & SLCIRXEOF) && s_this)
         {
-            ETS_SLC_INTR_DISABLE();
-
-             switch (s_this->_dmaState)
+            switch (s_this->_dmaState)
             {
             case NeoDmaState_Idle:
                 break;
@@ -335,38 +473,43 @@ private:
                     // just looping and not sending the data blocks
                     (finished_item + 1)->next_link_ptr = (uint32_t)(finished_item);
 
-                    s_this->_dmaState = NeoDmaState_Idle;
+                    s_this->_dmaState = NeoDmaState_Zeroing;
                 }
                 break;
+
+            case NeoDmaState_Zeroing:
+                s_this->_dmaState = NeoDmaState_Idle;
+                break;
             }
-
-
-            ETS_SLC_INTR_ENABLE();
         }
+
+        ETS_SLC_INTR_ENABLE();
     }
 
     void FillBuffers()
     {
-        const uint16_t bitpatterns[16] =
-        {
-            0b1000100010001000, 0b1000100010001110, 0b1000100011101000, 0b1000100011101110,
-            0b1000111010001000, 0b1000111010001110, 0b1000111011101000, 0b1000111011101110,
-            0b1110100010001000, 0b1110100010001110, 0b1110100011101000, 0b1110100011101110,
-            0b1110111010001000, 0b1110111010001110, 0b1110111011101000, 0b1110111011101110,
-        };
-
         uint16_t* pDma = (uint16_t*)_i2sBuffer;
-        uint8_t* pPixelsEnd = _pixels + _pixelsSize;
-        for (uint8_t* pPixel = _pixels; pPixel < pPixelsEnd; pPixel++)
+        uint8_t* pEnd = _data + _sizeData;
+        for (uint8_t* pData = _data; pData < pEnd; pData++)
         {
-            *(pDma++) = bitpatterns[((*pPixel) & 0x0f)];
-            *(pDma++) = bitpatterns[((*pPixel) >> 4) & 0x0f];
+            *(pDma++) = T_SPEED::Convert(((*pData) & 0x0f));
+            *(pDma++) = T_SPEED::Convert(((*pData) >> 4) & 0x0f);
         }
     }
 
     void StopDma()
     {
         ETS_SLC_INTR_DISABLE();
+
+        // Disable any I2S send or receive
+        I2SC &= ~(I2STXS | I2SRXS);
+
+        // Reset I2S
+        I2SC &= ~(I2SRST);
+        I2SC |= I2SRST;
+        I2SC &= ~(I2SRST);
+
+        
         SLCIC = 0xFFFFFFFF;
         SLCIE = 0;
         SLCTXL &= ~(SLCTXLAM << SLCTXLA); // clear TX descriptor address
@@ -374,24 +517,57 @@ private:
 
         pinMode(c_I2sPin, INPUT);
     }
+
+    uint32_t getPixelTime() const
+    {
+        return (T_SPEED::ByteSendTimeUs * this->_sizeData);
+    };
+
 };
+
 
 template<typename T_SPEED> 
 NeoEsp8266DmaMethodBase<T_SPEED>* NeoEsp8266DmaMethodBase<T_SPEED>::s_this;
 
+// normal
 typedef NeoEsp8266DmaMethodBase<NeoEsp8266DmaSpeedWs2812x> NeoEsp8266DmaWs2812xMethod;
 typedef NeoEsp8266DmaMethodBase<NeoEsp8266DmaSpeedSk6812> NeoEsp8266DmaSk6812Method;
+typedef NeoEsp8266DmaMethodBase<NeoEsp8266DmaSpeedTm1814> NeoEsp8266DmaTm1814Method;
 typedef NeoEsp8266DmaMethodBase<NeoEsp8266DmaSpeed800Kbps> NeoEsp8266Dma800KbpsMethod;
 typedef NeoEsp8266DmaMethodBase<NeoEsp8266DmaSpeed400Kbps> NeoEsp8266Dma400KbpsMethod;
+typedef NeoEsp8266DmaMethodBase<NeoEsp8266DmaSpeedApa106> NeoEsp8266DmaApa106Method;
+
+// inverted
+typedef NeoEsp8266DmaMethodBase<NeoEsp8266DmaInvertedSpeedWs2812x> NeoEsp8266DmaInvertedWs2812xMethod;
+typedef NeoEsp8266DmaMethodBase<NeoEsp8266DmaInvertedSpeedSk6812> NeoEsp8266DmaInvertedSk6812Method;
+typedef NeoEsp8266DmaMethodBase<NeoEsp8266DmaInvertedSpeedTm1814> NeoEsp8266DmaInvertedTm1814Method;
+typedef NeoEsp8266DmaMethodBase<NeoEsp8266DmaInvertedSpeed800Kbps> NeoEsp8266DmaInverted800KbpsMethod;
+typedef NeoEsp8266DmaMethodBase<NeoEsp8266DmaInvertedSpeed400Kbps> NeoEsp8266DmaInverted400KbpsMethod;
+typedef NeoEsp8266DmaMethodBase<NeoEsp8266DmaInvertedSpeedApa106> NeoEsp8266DmaInvertedApa106Method;
 
 // Dma  method is the default method for Esp8266
 typedef NeoEsp8266DmaWs2812xMethod NeoWs2813Method;
 typedef NeoEsp8266DmaWs2812xMethod NeoWs2812xMethod;
 typedef NeoEsp8266Dma800KbpsMethod NeoWs2812Method;
+typedef NeoEsp8266DmaWs2812xMethod NeoWs2811Method;
 typedef NeoEsp8266DmaSk6812Method NeoSk6812Method;
+typedef NeoEsp8266DmaTm1814Method NeoTm1814Method;
 typedef NeoEsp8266DmaSk6812Method NeoLc8812Method;
+typedef NeoEsp8266DmaApa106Method NeoApa106Method;
 
 typedef NeoEsp8266DmaWs2812xMethod Neo800KbpsMethod;
 typedef NeoEsp8266Dma400KbpsMethod Neo400KbpsMethod;
 
+// inverted
+typedef NeoEsp8266DmaInvertedWs2812xMethod NeoWs2813InvertedMethod;
+typedef NeoEsp8266DmaInvertedWs2812xMethod NeoWs2812xInvertedMethod;
+typedef NeoEsp8266DmaInverted800KbpsMethod NeoWs2812InvertedMethod;
+typedef NeoEsp8266DmaInvertedWs2812xMethod NeoWs2811InvertedMethod;
+typedef NeoEsp8266DmaInvertedSk6812Method NeoSk6812InvertedMethod;
+typedef NeoEsp8266DmaInvertedTm1814Method NeoTm1814InvertedMethod;
+typedef NeoEsp8266DmaInvertedSk6812Method NeoLc8812InvertedMethod;
+typedef NeoEsp8266DmaInvertedApa106Method NeoApa106InvertedMethod;
+
+typedef NeoEsp8266DmaInvertedWs2812xMethod Neo800KbpsInvertedMethod;
+typedef NeoEsp8266DmaInverted400KbpsMethod Neo400KbpsInvertedMethod;
 #endif

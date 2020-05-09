@@ -26,27 +26,36 @@ License along with NeoPixel.  If not, see
 
 #pragma once
 
-class DotStarGenericMethod
+// must also check for arm due to Teensy incorrectly having ARDUINO_ARCH_AVR set
+#if defined(ARDUINO_ARCH_AVR) && !defined(__arm__)
+#include "TwoWireBitBangImpleAvr.h"
+#else
+#include "TwoWireBitBangImple.h"
+#endif
+
+
+template<typename T_TWOWIRE> class DotStarMethodBase
 {
 public:
-    DotStarGenericMethod(uint8_t pinClock, uint8_t pinData, uint16_t pixelCount, size_t elementSize) :
-        _pinClock(pinClock),
-        _pinData(pinData),
-        _sizePixels(pixelCount * elementSize)
+	DotStarMethodBase(uint8_t pinClock, uint8_t pinData, uint16_t pixelCount, size_t elementSize, size_t settingsSize) :
+        _sizeData(pixelCount * elementSize + settingsSize),
+		_sizeEndFrame((pixelCount + 15) / 16), // 16 = div 2 (bit for every two pixels) div 8 (bits to bytes)
+		_wire(pinClock, pinData)
     {
-        pinMode(pinClock, OUTPUT);
-        pinMode(pinData, OUTPUT);
-
-        _pixels = (uint8_t*)malloc(_sizePixels);
-        memset(_pixels, 0, _sizePixels);
+        _data = static_cast<uint8_t*>(malloc(_sizeData));
+        memset(_data, 0, _sizeData);
     }
 
-    ~DotStarGenericMethod()
-    {
-        pinMode(_pinClock, INPUT);
-        pinMode(_pinData, INPUT);
+#if !defined(__AVR_ATtiny85__) && !defined(ARDUINO_attiny)
+	DotStarMethodBase(uint16_t pixelCount, size_t elementSize, size_t settingsSize) :
+		DotStarMethodBase(SCK, MOSI, pixelCount, elementSize, settingsSize)
+	{
+	}
+#endif
 
-        free(_pixels);
+    ~DotStarMethodBase()
+    {
+        free(_data);
     }
 
     bool IsReadyToUpdate() const
@@ -54,75 +63,67 @@ public:
         return true; // dot stars don't have a required delay
     }
 
+#if defined(ARDUINO_ARCH_ESP32)
+	void Initialize(int8_t sck, int8_t miso, int8_t mosi, int8_t ss)
+	{
+		_wire.begin(sck, miso, mosi, ss);
+	}
+#endif
+
     void Initialize()
     {
-        digitalWrite(_pinClock, LOW);
-        digitalWrite(_pinData, LOW);
+		_wire.begin();
     }
 
-    void Update()
+    void Update(bool)
     {
+		const uint8_t startFrame[4] = { 0x00 };
+
+		_wire.beginTransaction();
+
         // start frame
-        for (int startFrameByte = 0; startFrameByte < 4; startFrameByte++)
-        {
-            _transmitByte(0x00);
-        }
+		_wire.transmitBytes(startFrame, sizeof(startFrame));
         
         // data
-        uint8_t* data = _pixels;
-        const uint8_t* endData = _pixels + _sizePixels;
-        while (data < endData)
-        {
-            _transmitByte(*data++);
-        }
+		_wire.transmitBytes(_data, _sizeData);
         
         // end frame 
-        // one bit for every two pixels with no less than 1 byte
-        const uint16_t countEndFrameBytes = ((_sizePixels / 4) + 15) / 16;
-        for (uint16_t endFrameByte = 0; endFrameByte < countEndFrameBytes; endFrameByte++)
-        {
-           _transmitByte(0xff);
-        }
+		// one bit for every two pixels with no less than 1 byte
+		for (size_t endFrameByte = 0; endFrameByte < _sizeEndFrame; endFrameByte++)
+		{
+			_wire.transmitByte(0xff);
+		}
 
-        // set clock and data back to low between updates
-        digitalWrite(_pinData, LOW);
+		_wire.endTransaction();
     }
 
-    uint8_t* getPixels() const
+    uint8_t* getData() const
     {
-        return _pixels;
+        return _data;
     };
 
-    size_t getPixelsSize() const
+    size_t getDataSize() const
     {
-        return _sizePixels;
+        return _sizeData;
     };
 
 private:
-    const uint8_t  _pinClock;     // output pin number for clock line
-    const uint8_t  _pinData;      // output pin number for data line
-    const size_t   _sizePixels;   // Size of '_pixels' buffer below
+	const size_t   _sizeData;   // Size of '_data' buffer below
+	const size_t   _sizeEndFrame;
 
-    uint8_t* _pixels;       // Holds LED color values
-
-    void _transmitByte(uint8_t data)
-    {
-        for (int bit = 7; bit >= 0; bit--)
-        {
-            // set data bit on pin
-            digitalWrite(_pinData, (data & 0x80) == 0x80 ? HIGH : LOW);
-
-            // set clock high as data is ready
-            digitalWrite(_pinClock, HIGH);
-
-            data <<= 1;
-
-            // set clock low as data pin is changed
-            digitalWrite(_pinClock, LOW);
-        }
-    }
+	T_TWOWIRE _wire;
+    uint8_t* _data;       // Holds LED color values
 };
 
-typedef DotStarGenericMethod DotStarMethod;
+typedef DotStarMethodBase<TwoWireBitBangImple> DotStarMethod;
+
+#if !defined(__AVR_ATtiny85__) && !defined(ARDUINO_attiny)
+#include "TwoWireSpiImple.h"
+typedef DotStarMethodBase<TwoWireSpiImple<SpiSpeed20Mhz>> DotStarSpi20MhzMethod;
+typedef DotStarMethodBase<TwoWireSpiImple<SpiSpeed10Mhz>> DotStarSpi10MhzMethod;
+typedef DotStarMethodBase<TwoWireSpiImple<SpiSpeed2Mhz>> DotStarSpi2MhzMethod;
+typedef DotStarSpi10MhzMethod DotStarSpiMethod;
+#endif
+
 
 

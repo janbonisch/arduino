@@ -4,8 +4,6 @@
 #include <U8x8lib.h>              //https://github.com/olikraus/u8g2
 #include <ModbusRTUSlave.h>       //!!!see https://forum.arduino.cc/index.php?topic=663329.0
 
-
-
 // Ruzne poznamky:
 // Radeji pouzivam stdin typy, jeden nikdy nevi, do ceho ten kod budu rvat.
 
@@ -38,7 +36,7 @@
 //#define PIN_SCL
 
 //volitelne vstupovystupy
-#define BUTTON1       5
+#define BUTTON1       9
 #define BUTTON2       A7
 #define LED1          12
 #define LED2          11
@@ -59,8 +57,8 @@
 #define RELE_A_0()      {digitalWrite(RELE_A,LOW);}
 #define RELE_B_1()      {digitalWrite(RELE_B,HIGH);}
 #define RELE_B_0()      {digitalWrite(RELE_B,LOW);}
-#define WDOG_1()        {digitalWrite(WDOG,HIGH);}
-#define WDOG_0()        {digitalWrite(WDOG,LOW);}
+#define WDOG_1()        //TODO: potize s watchdogem //{digitalWrite(WDOG,HIGH);}
+#define WDOG_0()        //TODO: potize s watchdogem //{digitalWrite(WDOG,LOW);}
 
 #define CLK4094_PULSE() {CLK4094_1();CLK4094_0();}
 #define STR4094_PULSE() {STR4094_1();STR4094_0();}
@@ -68,22 +66,26 @@
 #define IS_BIN_READ()   (digitalRead(BIN_READ)!=LOW)  
 
 #ifdef BUTTON1
-#define IS_BUTTON1()    (digitalRead(BUTTON1)!=LOW)
+#define IS_BUTTON1()    (digitalRead(BUTTON1)!=HIGH)
 #endif //BUTTON1
 #ifdef BUTTON2
-#define IS_BUTTON2()    (digitalRead(BUTTON2)!=LOW)
+#define IS_BUTTON2()    (digitalRead(BUTTON2)!=HIGH)
 #endif //BUTTON2
 
 //modbus mapovani
 uint16_t modbus_data[16]; //blok modbus dat
 #define inputs_status  modbus_data[0] //bits  0-15 stav vstupu
-#define relays_status  modbus_data[1] //birs 16-31 stav relat
+#define relays_status  modbus_data[1] //bits 16-31 stav relat
 
-#define pinOutput(pin_id,value) {pinMode(pin_id,OUTPUT);digitalWrite(pin_id,value);} //makro pro nastaveni pinu(pin_id) jako vystup a inicializace na pozadovanou hodnotu (value).
+//Podporgramek pro pro nastaveni pinu(pin_id) jako vystup a inicializace na pozadovanou hodnotu (value).
+void pinOutput(uint8_t pin_id, uint8_t value) {
+  pinMode(pin_id,OUTPUT);
+  digitalWrite(pin_id,value);  
+} //puvodne jako makro, usetrime 55 bajtu! ;-) // #define pinOutput(pin_id,value) {pinMode(pin_id,OUTPUT);digitalWrite(pin_id,value);} //makro pro nastaveni pinu(pin_id) jako vystup a inicializace na pozadovanou hodnotu (value).
 
 void io_setup(void) {
   //watchdog
-  pinOutput(WDOG,LOW); //je to vystup, dame do nuly
+  //TODO: potize s watchdogem //pinOutput(WDOG,LOW); //je to vystup, dame do nuly  
   WDOG_PULSE(); //a hnedle si pusneme
   //rizeni relatek
   analogReference(INTERNAL); //nastavime interni referenci, u 385 je to 1.1V
@@ -105,7 +107,7 @@ void io_setup(void) {
   pinMode(BUTTON2,INPUT_PULLUP);
 #endif //BUTTON2
   //rizeni retezu posuvaku
-  pinOutput(STR4094,LOW);
+  pinMode(BIN_READ,INPUT_PULLUP);
   pinOutput(STR4094,LOW);
   pinOutput(DATA4094,LOW);
   pinOutput(CLK4094,LOW);
@@ -133,15 +135,16 @@ uint16_t readin4094(void) {
   CLK4094_PULSE(); //cukneme hodinama
   DATA4094_0(); //data a zase zpet do 0
   STR4094_1(); //a jedem s tim na vystupy
-  b=CHAIN4094_LENGTH; //tolik ma retizek posuvaku bitu
+  b=CHAIN4094_LENGTH+1; //tolik ma retizek posuvaku bitu
   r=0;
-  do {    
+  do {            
     if (IS_BIN_READ()) r|=1; //pokud je tam jednicka, tak sup s tim na vystup
     if ((--b)==0) { //pokud uz mame vsechno
       STR4094_0(); //rusime buzeni      
       return r; //a vracime vysledek
     }
-    CLK4094_PULSE(); //cukneme hodinama    
+    CLK4094_PULSE(); //cukneme hodinama
+    //delayMicroseconds(20);
     r<<=1; //udelam si misto na dalsi bitik
   } while (1);   
 }
@@ -151,6 +154,7 @@ uint16_t readin4094(void) {
 void set4094(uint8_t id) {
   uint8_t b;
 
+  id++; //pocitame od jednicky
   b=CHAIN4094_LENGTH; //tolik ma retizek posuvaku bitu
   do {
     DATA4094_0(); //vetsinou tam je nula
@@ -184,7 +188,7 @@ uint8_t relays_timer;
 #define RELAY_DRIVE_TIME  20 //jak dlouho budime [ms]
 
 #define NO_RELAY          0
-#define RELAY_GROUP_A     (NO_RELAY)
+#define RELAY_GROUP_A     ((NO_RELAY)+1)
 #define RELAY_GROUP_B     ((RELAY_GROUP_A)+1)
 
 void relays_drive(uint8_t mode) {
@@ -217,7 +221,7 @@ uint8_t relays_tick() {
   if (timer==0) { //pokud se nic nedeje, tak je moznost pripadne neco zacit
     st=relays_change; //zlokalnim si pozadavky na zmenu
     if (st==0) return RELAY_QUIET; //pokud zadna pozadovana zmena, tak nic
-    //TODO: zmerit napeti na relatech, pokud malo, tak lsus
+    //TODO: zmerit napeti na relatech, pokud malo, tak lsus s navratovym kodem RELAY_QUIET
     mask=1; //maska
     i=0; //idcko    
     while ((st&mask)==0) { //pokud maska nemaskuje
@@ -237,7 +241,7 @@ uint8_t relays_tick() {
     timer=0; //zastavuju casovadlo
   }
   relays_timer=timer; //nova hodnota casovadla
-  return RELAY_DRIVE;
+  return RELAY_DRIVE; //oznamujeme volajicimu, ze budime
 }
 
 //----------------------------------------------------------------
@@ -254,6 +258,9 @@ void input_flt_proc(uint8_t id, uint8_t value) {
   inputs_flt[id]=f; //a novy stav filtru
 }
 
+#define INPUT_FLT_PRESS   0x7F
+#define INPUT_FLT_RELASE  0x80
+
 void inputs_status_update(void) {
   int i;
   uint8_t f;  
@@ -264,9 +271,9 @@ void inputs_status_update(void) {
   st=inputs_status; //nabereme aktualni stavy
   do {
     f=inputs_flt[i]; //nabereme si aktualni stav filtru
-    if (f==0x7F) { //pokud je to nabezna hrana
+    if (f==INPUT_FLT_PRESS) { //pokud je to nabezna hrana
       st|=mask; //nahod bitika
-    } else if (f==0x80) { //pokud je to sestupna
+    } else if (f==INPUT_FLT_RELASE) { //pokud je to sestupna
       st&=~mask; //schodime bitika
     }
     if ((mask<<=1)==0) { //cukneme maskou a pokud je to nula, tak uz mame hotovo
@@ -325,6 +332,27 @@ void modbus_proc() {
 }
 
 //----------------------------------------------------------------
+// Displej
+
+U8X8_SSD1306_128X32_UNIVISION_HW_I2C u8x8(/* reset=*/ U8X8_PIN_NONE);
+
+void display_init(void) {
+  u8x8.begin();  
+  
+  u8x8.setFont(u8x8_font_chroma48medium8_r);  
+  
+  u8x8.draw2x2String(0,0,"< SiOB >");
+  u8x8.setInverseFont(TRUE);
+  u8x8.drawString(0,2,"(C)Klapka   v1.0");
+  u8x8.setInverseFont(FALSE);
+  u8x8.drawString(0,3,".:Hello World!:.");  
+}
+
+void display_proc(void) {
+  
+}
+
+//----------------------------------------------------------------
 // Odvozene udalosti pro zakladni kooperativni multitasking.
 
 void ev_init(void) {
@@ -333,7 +361,7 @@ void ev_init(void) {
   relays_init(); //inicializace relat  
   //u8g2.begin(); //Inicializace dipleje
   //display_proc(0);  
-  modbus_init(); //start modbus rozhrani
+  //modbus_init(); //start modbus rozhrani
 }
 
 void ev_proc(void) { 
@@ -367,18 +395,57 @@ uint8_t flags; //priznaky
 
 void setup() {
   Serial.begin(9600); //ladici seriak
-  Serial.println("SIOB - debug");
-  Serial.println("============\r\n\r\n");  
+  Serial.println(F("\r\nSIOB - debug"
+                   "\r\n============"
+                   "\r\n\r\n"));  
   io_setup(); //zakladni inicializace IO nozek
-  //init4094(); //inicializace retezu posuvnych registru  
+  init4094(); //inicializace retezu posuvnych registru  
+  display_init(); //inicializace displeje
 }
+uint8_t dbgct;
 
 void loop() {
+  //Ladeni watchdogu, TODO: nejakej potiz s HW, zatim deaktivovani HW je jako vstup
+  /*
   Serial.println("Kick the dog");
   //WDOG_PULSE();
-  WDOG_1(); delay(10); WDOG_0();
-  //Serial.println(readin4094(), HEX);  // print as an ASCII-encoded hexadecimal
-  delay(500);  
+  //WDOG_1(); delay(10); WDOG_0();
+  delay(500);
+  */
+  //Ladeni retezu 4094  
+  /*
+  Serial.print(F("readin4094() returns "));
+  Serial.println(readin4094(),HEX);  
+  delay(500);
+  */
+  //Ladeni relatek 
+  /*
+  #define REL_DLY 20
+  #define REL_ID ((dbgct&0xF))
+  set4094(REL_ID);relays_drive(RELAY_GROUP_A);delay(REL_DLY);relays_drive(RELAY_QUIET);set4094(255);
+  delay(30);
+  set4094(REL_ID);relays_drive(RELAY_GROUP_B);delay(REL_DLY);relays_drive(RELAY_QUIET);set4094(255);  
+  delay(30);   
+  */
+  //Ladeni ledek  
+  /*
+  #define LED_DELAY   100
+  digitalWrite(LED1,LOW);delay(LED_DELAY); //LED1 nefunguje, proc sakraprace? Jestli je arduino v hajzlu, nebo na D12 je treba nejak specialne, casem dozjistit
+  digitalWrite(LED2,LOW);delay(LED_DELAY);
+  digitalWrite(LED1,HIGH);delay(LED_DELAY);
+  digitalWrite(LED2,HIGH);delay(LED_DELAY);   
+  */
+  //Ladeni cudliku
+  dbgct=0;
+  if (IS_BUTTON1()) dbgct+=1;
+  if (IS_BUTTON2()) dbgct+=2;
+  Serial.print(F("button status "));
+  Serial.println(dbgct,HEX);  
+  delay(100);
+
+  
+  //konec hlavni samyce
+  dbgct++;
 }
 
 
