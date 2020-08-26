@@ -1,0 +1,14 @@
+#Sosneme z gitu
+git clone https://github.com/Optiboot/optiboot.git
+
+#zalezt do adresare optiboot/optiboot/bootloaders/optiboot/make-ccversions'
+make atmega328
+
+#kterak avrdude rozject
+avrdude -patmega328p -cjtag2isp -e
+
+#tak tohle vypadlo z toho blaznivyho optiboot, se vytahovali, jak to nastavi vsechno mozny ... a prd, padlo to hned na prvnim lock
+#avrdude -v -v -c jtag2isp -p atmega328p -e -u -U lock:w:0x3f:m -U efuse:w:0xFD:m -U hfuse:w:0xDE:m -U lfuse:w:0xFF:m -U flash:w:optiboot_atmega328.hex -U lock:w:0x2f:m
+
+#a tohle je moje verze, pouzito nejaky automazani, na loc v uvodu dlabu a posledni neverifikuju a vypada to funkcne
+avrdude -vv -c jtag2isp -p atmega328p -D -u -U efuse:w:0xFD:m -U hfuse:w:0xDE:m -U lfuse:w:0xFF:m -U flash:w:optiboot_atmega328.hex -V -U lock:w:0x2f:m
